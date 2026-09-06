@@ -85,7 +85,8 @@ async def process_category_callback(callback_query: types.CallbackQuery):
 # This listens for the Admin replying to a forwarded message
 @dp.message(F.reply_to_message & (F.from_user.id == ADMIN_USER_ID))
 async def admin_reply_handler(message: types.Message):
-    replied_text = message.reply_to_message.text or ""
+    # Support checking text OR captions if you replied to an image log
+    replied_text = message.reply_to_message.text or message.reply_to_message.caption or ""
     
     # Extract the User ID and Original Message ID from the log
     user_match = re.search(r"ID:\s*(\d+)", replied_text)
@@ -100,14 +101,12 @@ async def admin_reply_handler(message: types.Message):
             reply_to_message_id = int(msg_match.group(1))
             
         try:
-            # Send the admin's answer to the customer as a direct attached reply!
-            await bot.send_message(
-                chat_id=user_id, 
-                text=f"👨‍💻 <b>Message from Admin:</b>\n\n{message.text}", 
-                parse_mode="HTML",
+            # COPY_TO is powerful! It supports text, photos, voice notes, stickers, and documents.
+            await message.copy_to(
+                chat_id=user_id,
                 reply_to_message_id=reply_to_message_id
             )
-            await message.answer("✅ Your reply was successfully sent and attached to their question!")
+            await message.answer("✅ Your reply (and attachments) was successfully sent!")
         except Exception as e:
             await message.answer(f"❌ Failed to send message. They might have blocked the bot. Error: {e}")
     else:
@@ -121,19 +120,32 @@ async def process_question(message: types.Message):
         return
 
     user_text = message.text
-    answer = faq_manager.find_answer(user_text)
+    match_data = faq_manager.find_answer(user_text)
     
-    if answer:
-        # Bot found an answer! Send it to customer.
-        await message.answer(str(answer), parse_mode="HTML")
-        # Update the admin log to show the EXACT full reply message
-        bot_response_summary = f"✅ Answered automatically with:\n💬 {answer}"
+    if match_data:
+        answer_text = match_data["answer"]
+        image_url = match_data["image_url"]
+        
+        try:
+            # If the excel file has a web link in the image_url column
+            if image_url and image_url.startswith("http"):
+                await message.answer_photo(photo=image_url, caption=answer_text, parse_mode="HTML")
+                bot_response_summary = f"✅ Answered with Image:\n💬 {answer_text}"
+            else:
+                # If there is no picture, just send normal text
+                await message.answer(answer_text, parse_mode="HTML")
+                bot_response_summary = f"✅ Answered automatically with:\n💬 {answer_text}"
+                
+        except Exception as img_error:
+            # If the picture link is broken or invalid, fall back to just text
+            await message.answer(answer_text, parse_mode="HTML")
+            bot_response_summary = f"✅ Answered automatically (Image failed to load, sent text instead)"
     else:
         # No answer found, send the Khmer wait message
         await message.answer("សូមបងរងចាំបន្តិច")
         bot_response_summary = "❌ No match (needs human reply)."
         
-    # Send the log to the Admin (now includes MsgID!)
+    # Send the log to the Admin so they can reply
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
     admin_log = (
         f"🚨 <b>NEW CUSTOMER QUESTION</b>\n"

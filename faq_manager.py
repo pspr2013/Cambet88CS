@@ -18,10 +18,15 @@ class FAQManager:
         try:
             if not os.path.exists(self.file_path):
                 logger.warning(f"FAQ file {self.file_path} not found.")
-                self.df = pd.DataFrame(columns=["id", "category", "keywords", "question", "answer"])
+                self.df = pd.DataFrame(columns=["id", "category", "keywords", "question", "answer", "image_url"])
                 return False
 
             self.df = pd.read_excel(self.file_path)
+            
+            # Ensure image_url column exists even if you haven't added it to Excel yet
+            if 'image_url' not in self.df.columns:
+                self.df['image_url'] = ""
+                
             self.df = self.df.fillna("")
             self.last_modified = os.path.getmtime(self.file_path)
             self.categories = [c for c in self.df['category'].unique() if str(c).strip()]
@@ -50,9 +55,9 @@ class FAQManager:
         for index, row in self.df.iterrows():
             keywords = [k.strip().lower() for k in str(row['keywords']).split(',') if k.strip()]
             if any(k in user_text_lower for k in keywords):
-                return row['answer']
+                return {"answer": str(row['answer']), "image_url": str(row['image_url']).strip()}
             if user_text_lower in str(row['question']).lower():
-                return row['answer']
+                return {"answer": str(row['answer']), "image_url": str(row['image_url']).strip()}
 
         # Step 2: Fuzzy matching against questions and keywords
         best_match = None
@@ -68,7 +73,7 @@ class FAQManager:
             score = max(q_score, k_score)
             if score > best_score:
                 best_score = score
-                best_match = row['answer']
+                best_match = {"answer": str(row['answer']), "image_url": str(row['image_url']).strip()}
 
         if best_score >= 70:
             return best_match
