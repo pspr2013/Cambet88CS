@@ -87,22 +87,31 @@ async def process_category_callback(callback_query: types.CallbackQuery):
 async def admin_reply_handler(message: types.Message):
     replied_text = message.reply_to_message.text or ""
     
-    # Extract the User ID from the text the admin replied to
-    match = re.search(r"ID:\s*(\d+)", replied_text)
-    if match:
-        user_id = int(match.group(1))
+    # Extract the User ID and Original Message ID from the log
+    user_match = re.search(r"ID:\s*(\d+)", replied_text)
+    msg_match = re.search(r"MsgID:\s*(\d+)", replied_text)
+    
+    if user_match:
+        user_id = int(user_match.group(1))
+        
+        # Check if we have the original message ID to attach the reply to
+        reply_to_message_id = None
+        if msg_match:
+            reply_to_message_id = int(msg_match.group(1))
+            
         try:
-            # Send the admin's answer to the customer
+            # Send the admin's answer to the customer as a direct attached reply!
             await bot.send_message(
-                user_id, 
-                f"👨‍💻 <b>Message from Admin:</b>\n\n{message.text}", 
-                parse_mode="HTML"
+                chat_id=user_id, 
+                text=f"👨‍💻 <b>Message from Admin:</b>\n\n{message.text}", 
+                parse_mode="HTML",
+                reply_to_message_id=reply_to_message_id
             )
-            await message.answer("✅ Your reply was successfully sent to the customer!")
+            await message.answer("✅ Your reply was successfully sent and attached to their question!")
         except Exception as e:
             await message.answer(f"❌ Failed to send message. They might have blocked the bot. Error: {e}")
     else:
-        await message.answer("❌ Could not find the User ID. Make sure you are replying to a log message that contains 'ID: 12345678'.")
+        await message.answer("❌ Could not find the User ID. Make sure you are replying to a log message.")
 
 # --- CUSTOMER QUESTION HANDLER ---
 @dp.message(F.text)
@@ -124,12 +133,13 @@ async def process_question(message: types.Message):
         await message.answer("សូមបងរងចាំបន្តិច")
         bot_response_summary = "❌ No match (needs human reply)."
         
-    # Send the log to the Admin so they can reply
+    # Send the log to the Admin (now includes MsgID!)
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
     admin_log = (
         f"🚨 <b>NEW CUSTOMER QUESTION</b>\n"
         f"👤 <b>User:</b> {message.from_user.full_name} ({username})\n"
         f"🆔 <b>ID:</b> {message.from_user.id}\n"
+        f"📝 <b>MsgID:</b> {message.message_id}\n"
         f"💬 <b>Asked:</b> {user_text}\n"
         f"🤖 <b>Bot Action:</b> {bot_response_summary}\n\n"
         f"<i>(Swipe left / Reply directly to this message to answer the customer!)</i>"
