@@ -107,7 +107,7 @@ async def admin_reply_handler(message: types.Message):
 # --- CUSTOMER QUESTION HANDLER ---
 @dp.message(F.text)
 async def process_question(message: types.Message):
-    # Don't process normal text from the admin as a FAQ question to avoid spamming the admin with their own logs
+    # Don't process normal text from the admin as a FAQ question
     if message.from_user.id == ADMIN_USER_ID:
         return
 
@@ -115,13 +115,13 @@ async def process_question(message: types.Message):
     answer = faq_manager.find_answer(user_text)
     
     if answer:
+        # Bot found an answer!
         await message.answer(str(answer), parse_mode="HTML")
-        bot_response_summary = "✅ Answered automatically."
+        # Update the log to actually show what the bot said
+        bot_response_summary = f"✅ Answered automatically with:\n« <i>{answer}</i> »"
     else:
-        await message.answer(
-            "I couldn't find an exact match for your question, but I have forwarded it to an admin!\n\nHere are some topics you can explore in the meantime:",
-            reply_markup=get_categories_keyboard()
-        )
+        # No answer found, send the Khmer wait message
+        await message.answer("សូមបងរងចាំបន្តិច")
         bot_response_summary = "❌ No match (needs human reply)."
         
     # Send the log to the Admin so they can reply
@@ -138,7 +138,6 @@ async def process_question(message: types.Message):
         await bot.send_message(ADMIN_USER_ID, admin_log, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Could not send log to admin: {e}")
-
 async def main():
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN is missing. Cannot start polling.")
