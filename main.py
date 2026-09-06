@@ -115,10 +115,10 @@ async def process_question(message: types.Message):
     answer = faq_manager.find_answer(user_text)
     
     if answer:
-        # Bot found an answer!
+        # Bot found an answer! Send it to customer.
         await message.answer(str(answer), parse_mode="HTML")
-        # Update the log to actually show what the bot said
-        bot_response_summary = f"✅ Answered automatically with:\n« <i>{answer}</i> »"
+        # Update the admin log to show the EXACT full reply message
+        bot_response_summary = f"✅ Answered automatically with:\n💬 {answer}"
     else:
         # No answer found, send the Khmer wait message
         await message.answer("សូមបងរងចាំបន្តិច")
@@ -138,6 +138,7 @@ async def process_question(message: types.Message):
         await bot.send_message(ADMIN_USER_ID, admin_log, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Could not send log to admin: {e}")
+
 async def main():
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN is missing. Cannot start polling.")
