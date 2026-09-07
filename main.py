@@ -5,7 +5,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from config import BOT_TOKEN, ADMIN_USER_ID, FAQ_FILE_PATH, PORT
+from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
 from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
@@ -23,7 +23,7 @@ except Exception as e:
     bot = None
 
 dp = Dispatcher()
-faq_manager = FAQManager(FAQ_FILE_PATH)
+faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
 def get_categories_keyboard():
     categories = faq_manager.get_categories()
