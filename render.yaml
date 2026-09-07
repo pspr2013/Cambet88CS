@@ -11,3 +11,5 @@ services:
         sync: false
       - key: PORT
         value: 8080
+      - key: GOOGLE_SHEET_URL
+        sync: false
