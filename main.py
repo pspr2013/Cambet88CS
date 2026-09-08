@@ -11,7 +11,7 @@ from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
 from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
-# 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
+# 👇 DON'T FORGET TO PASTE YOUR GOOGLE WEB APP URL HERE 👇
 GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec"
 
 
@@ -34,12 +34,23 @@ faq_manager = FAQManager(GOOGLE_SHEET_URL)
 # --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
 async def save_user(user_id):
     if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
-        return # Skip if URL isn't set yet
+        return 
     try:
         async with aiohttp.ClientSession() as session:
             await session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id)})
     except Exception as e:
-        logger.error(f"Failed to save user to Google Sheets: {e}")
+        logger.error(f"Failed to save user: {e}")
+
+# --- FEATURE: REMOVE BLOCKED USER FROM GOOGLE SHEETS ---
+async def remove_user(user_id):
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
+        return 
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id), "action": "delete"})
+    except Exception as e:
+        logger.error(f"Failed to delete user: {e}")
+
 
 def get_categories_keyboard():
     categories = faq_manager.get_categories()
@@ -48,22 +59,13 @@ def get_categories_keyboard():
         keyboard.append([InlineKeyboardButton(text=cat, callback_data=f"cat_{cat}")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-async def remove_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
-        return 
-    try:
-        async with aiohttp.ClientSession() as session:
-            # Notice the action="delete" part!
-            await session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id), "action": "delete"})
-    except Exception as e:
-        logger.error(f"Failed to delete user from Google Sheets: {e}")
 
 # --- FEATURE: WELCOME IMAGE ---
 WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q=80&w=1000&auto=format&fit=crop"
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    asyncio.create_task(save_user(message.from_user.id)) # Save to Google Sheets!
+    asyncio.create_task(save_user(message.from_user.id))
     
     welcome_text = (
         "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន Bot!</b>\n\n"
@@ -99,7 +101,6 @@ async def cmd_broadcast(message: types.Message):
             async with session.get(GOOGLE_APPS_SCRIPT_URL) as response:
                 text_data = await response.text()
                 
-        # Parse the comma-separated IDs returned from Google
         if not text_data.strip():
             known_users = []
         else:
@@ -115,7 +116,7 @@ async def cmd_broadcast(message: types.Message):
     await message.answer(f"🚀 Starting broadcast to {len(known_users)} customers...")
     success = 0
     
-        for uid in known_users:
+    for uid in known_users:
         try:
             if message.photo:
                 await bot.send_photo(uid, photo=message.photo[-1].file_id, caption=clean_text, parse_mode="HTML")
@@ -126,12 +127,11 @@ async def cmd_broadcast(message: types.Message):
                 
             success += 1
             await asyncio.sleep(0.1)
-            
         except Exception:
-            # If the message fails (e.g., they blocked the bot), delete them from the Google Sheet!
+            # If they blocked the bot, remove them!
             asyncio.create_task(remove_user(uid))
             
-    await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.\n*(Any customers who blocked the bot have been removed from your list).*")
+    await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.\n*(Any customers who blocked the bot have been automatically removed from your list).*")
 
 
 @dp.message(Command("help"))
@@ -162,12 +162,12 @@ async def cmd_reload(message: types.Message):
     else:
         await message.answer("❌ Failed to reload FAQ data. Check logs.")
 
+# --- FEATURE: DIRECT ANSWER ON CATEGORY CLICK ---
 @dp.callback_query(F.data.startswith("cat_"))
 async def process_category_callback(callback_query: types.CallbackQuery):
     asyncio.create_task(save_user(callback_query.from_user.id))
     category = callback_query.data[4:]
     
-    # Instantly search for the answer using the button's name
     match_data = faq_manager.find_answer(category)
     
     if match_data:
@@ -175,19 +175,16 @@ async def process_category_callback(callback_query: types.CallbackQuery):
         image_url = match_data["image_url"]
         try:
             if image_url and image_url.startswith("http"):
-                # Send picture and text instantly!
                 await callback_query.message.answer_photo(photo=image_url, caption=answer_text, parse_mode="HTML")
             else:
-                # Send text instantly!
                 await callback_query.message.answer(answer_text, parse_mode="HTML")
         except Exception:
             await callback_query.message.answer(answer_text, parse_mode="HTML")
     else:
-        # Fallback if something goes wrong
         await callback_query.message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
         
-    # Tell Telegram we finished processing the button click
     await callback_query.answer()
+
 
 @dp.message(F.reply_to_message & (F.from_user.id == ADMIN_USER_ID))
 async def admin_reply_handler(message: types.Message):
@@ -202,10 +199,7 @@ async def admin_reply_handler(message: types.Message):
             reply_to_message_id = int(msg_match.group(1))
             
         try:
-            await message.copy_to(
-                chat_id=user_id,
-                reply_to_message_id=reply_to_message_id
-            )
+            await message.copy_to(chat_id=user_id, reply_to_message_id=reply_to_message_id)
             await message.answer("✅ Your reply was successfully sent!")
         except Exception as e:
             await message.answer(f"❌ Failed to send message. Error: {e}")
@@ -219,9 +213,8 @@ async def process_question(message: types.Message):
     if message.from_user.id == ADMIN_USER_ID:
         return
 
-    asyncio.create_task(save_user(message.from_user.id)) # Save to Google Sheets!
+    asyncio.create_task(save_user(message.from_user.id)) 
     
-    # Show "typing..." at the top of the customer's screen
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     await asyncio.sleep(0.5)
 
@@ -238,7 +231,7 @@ async def process_question(message: types.Message):
             else:
                 await message.answer(answer_text, parse_mode="HTML")
                 bot_response_summary = f"✅ Answered automatically with:\n💬 {answer_text}"
-        except Exception as img_error:
+        except Exception:
             await message.answer(answer_text, parse_mode="HTML")
             bot_response_summary = f"✅ Answered automatically (Image failed to load)"
     else:
@@ -276,5 +269,3 @@ async def main():
 if __name__ == "__main__":
     if BOT_TOKEN:
         asyncio.run(main())
-    else:
-        print("Please configure your .env file with a valid BOT_TOKEN")
