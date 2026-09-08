@@ -57,8 +57,8 @@ async def cmd_start(message: types.Message):
     asyncio.create_task(save_user(message.from_user.id)) # Save to Google Sheets!
     
     welcome_text = (
-        "👋 <b>Welcome to our Customer Support Bot!</b>\n\n"
-        "How can we help you today? You can type your question below, or use the buttons to browse our FAQ topics."
+        "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន Bot!</b>\n\n"
+        "លោកអ្នកអាចចោទជាសំនួរមកកាន់ខ្ញុំ, រឺក៏ចុចប៊ូតុងខាងក្រោមដើម្បីរកប្រធានបទ FAQ៖"
     )
     try:
         await message.answer_photo(
@@ -155,16 +155,28 @@ async def cmd_reload(message: types.Message):
 async def process_category_callback(callback_query: types.CallbackQuery):
     asyncio.create_task(save_user(callback_query.from_user.id))
     category = callback_query.data[4:]
-    questions = faq_manager.get_questions_by_category(category)
-    if not questions:
-        await callback_query.message.answer("No questions found for this category.")
+    
+    # Instantly search for the answer using the button's name
+    match_data = faq_manager.find_answer(category)
+    
+    if match_data:
+        answer_text = match_data["answer"]
+        image_url = match_data["image_url"]
+        try:
+            if image_url and image_url.startswith("http"):
+                # Send picture and text instantly!
+                await callback_query.message.answer_photo(photo=image_url, caption=answer_text, parse_mode="HTML")
+            else:
+                # Send text instantly!
+                await callback_query.message.answer(answer_text, parse_mode="HTML")
+        except Exception:
+            await callback_query.message.answer(answer_text, parse_mode="HTML")
     else:
-        text = f"<b>{category} FAQs:</b>\n\n"
-        for i, q in enumerate(questions, 1):
-            text += f"{i}. {q}\n"
-        await callback_query.message.answer(text, parse_mode="HTML")
+        # Fallback if something goes wrong
+        await callback_query.message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
+        
+    # Tell Telegram we finished processing the button click
     await callback_query.answer()
-
 
 @dp.message(F.reply_to_message & (F.from_user.id == ADMIN_USER_ID))
 async def admin_reply_handler(message: types.Message):
