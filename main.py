@@ -12,7 +12,7 @@ from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
 # 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
-GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwRDpq4K4COJlxmU7XOuuogwTjJdpGXwcbdb8Tm3feM-YmxjYkiaRYJW8EUROxUeh1H/exec"
+GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxlUNiWZGRcB7HOnCS-UlAvmKO9kfv_GTBtj1ICAzghHKYkzLdhyhFDpQ4FBOIJaVgP/exec"
 
 
 # Setup logging
@@ -33,24 +33,25 @@ faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
 # --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
 async def save_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbwRDpq4K4COJlxmU7XOuuogwTjJdpGXwcbdb8Tm3feM-YmxjYkiaRYJW8EUROxUeh1H/exec":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbxlUNiWZGRcB7HOnCS-UlAvmKO9kfv_GTBtj1ICAzghHKYkzLdhyhFDpQ4FBOIJaVgP/exec":
         return 
     try:
+        # We now use simple GET links which Google handles perfectly!
+        url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=save"
         async with aiohttp.ClientSession() as session:
-            # We must await the response text so Python doesn't disconnect too early!
-            async with session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id)}) as response:
+            async with session.get(url) as response:
                 await response.text() 
     except Exception as e:
         logger.error(f"Failed to save user: {e}")
 
 # --- FEATURE: REMOVE BLOCKED USER FROM GOOGLE SHEETS ---
 async def remove_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbwRDpq4K4COJlxmU7XOuuogwTjJdpGXwcbdb8Tm3feM-YmxjYkiaRYJW8EUROxUeh1H/exec":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbxlUNiWZGRcB7HOnCS-UlAvmKO9kfv_GTBtj1ICAzghHKYkzLdhyhFDpQ4FBOIJaVgP/exec":
         return 
     try:
+        url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=delete"
         async with aiohttp.ClientSession() as session:
-            # Tell Google to delete, and wait for confirmation!
-            async with session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id), "action": "delete"}) as response:
+            async with session.get(url) as response:
                 result = await response.text()
                 logger.info(f"Google Sheet delete response: {result}")
     except Exception as e:
