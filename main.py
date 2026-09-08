@@ -11,8 +11,8 @@ from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
 from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
-# 👇 DON'T FORGET TO PASTE YOUR GOOGLE WEB APP URL HERE 👇
-GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzyMFJLEKruyM-oEBhxbp7yv5s24ZzfXiuAuVTryahRN3B4JQTs4CJRwffAmYWhpgRn/exec"
+# 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
+GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec"
 
 
 # Setup logging
@@ -33,21 +33,26 @@ faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
 # --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
 async def save_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzyMFJLEKruyM-oEBhxbp7yv5s24ZzfXiuAuVTryahRN3B4JQTs4CJRwffAmYWhpgRn/exec":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
         return 
     try:
         async with aiohttp.ClientSession() as session:
-            await session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id)})
+            # We must await the response text so Python doesn't disconnect too early!
+            async with session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id)}) as response:
+                await response.text() 
     except Exception as e:
         logger.error(f"Failed to save user: {e}")
 
 # --- FEATURE: REMOVE BLOCKED USER FROM GOOGLE SHEETS ---
 async def remove_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzyMFJLEKruyM-oEBhxbp7yv5s24ZzfXiuAuVTryahRN3B4JQTs4CJRwffAmYWhpgRn/exec":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
         return 
     try:
         async with aiohttp.ClientSession() as session:
-            await session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id), "action": "delete"})
+            # Tell Google to delete, and wait for confirmation!
+            async with session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id), "action": "delete"}) as response:
+                result = await response.text()
+                logger.info(f"Google Sheet delete response: {result}")
     except Exception as e:
         logger.error(f"Failed to delete user: {e}")
 
@@ -127,9 +132,10 @@ async def cmd_broadcast(message: types.Message):
                 
             success += 1
             await asyncio.sleep(0.1)
-        except Exception:
-            # If they blocked the bot, remove them!
-            asyncio.create_task(remove_user(uid))
+        except Exception as e:
+            # If they blocked the bot, we MUST await the remove function so it finishes deleting before moving on!
+            logger.warning(f"Broadcast failed for {uid}. Removing from Google Sheet.")
+            await remove_user(uid)
             
     await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.\n*(Any customers who blocked the bot have been automatically removed from your list).*")
 
