@@ -33,21 +33,17 @@ faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
 # --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
 async def save_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec":
-        return 
     try:
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=save"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 result = await response.text() 
-                logger.info(f"Save User Result: {result}") # This will show in Render Logs!
+                logger.info(f"Save User Result: {result}") 
     except Exception as e:
         logger.error(f"Failed to save user: {e}")
 
 # --- FEATURE: REMOVE BLOCKED USER FROM GOOGLE SHEETS ---
 async def remove_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec":
-        return 
     try:
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=delete"
         async with aiohttp.ClientSession() as session:
@@ -56,14 +52,6 @@ async def remove_user(user_id):
                 logger.info(f"Delete User Result: {result}")
     except Exception as e:
         logger.error(f"Failed to delete user: {e}")
-
-
-def get_categories_keyboard():
-    categories = faq_manager.get_categories()
-    keyboard = []
-    for cat in categories:
-        keyboard.append([InlineKeyboardButton(text=cat, callback_data=f"cat_{cat}")])
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 # --- FEATURE: WELCOME IMAGE ---
