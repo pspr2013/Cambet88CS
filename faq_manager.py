@@ -2,6 +2,7 @@ import pandas as pd
 from rapidfuzz import fuzz
 import asyncio
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class FAQManager:
 
         user_text_lower = user_text.lower()
 
+        # Step 1: Check for exact/partial keyword matches
         for index, row in self.df.iterrows():
             keywords = [k.strip().lower() for k in str(row['keywords']).split(',') if k.strip()]
             if any(k in user_text_lower for k in keywords):
@@ -54,6 +56,7 @@ class FAQManager:
             if user_text_lower in str(row['question']).lower():
                 return {"answer": str(row['answer']), "image_url": str(row['image_url']).strip()}
 
+        # Step 2: Fuzzy matching against questions and keywords
         best_match = None
         best_score = 0
         
@@ -74,13 +77,13 @@ class FAQManager:
 
         return None
         
-        async def auto_reload_task(self):
+    async def auto_reload_task(self):
         while True:
             # Check the Google Sheet every 5 minutes
             await asyncio.sleep(60 * 5)
             try:
                 logger.info("Auto-reloading data from Google Sheets in the background...")
-                # NEW: This forces the Google download to happen in a separate background thread, 
+                # This forces the Google download to happen in a separate background thread, 
                 # so your Telegram bot NEVER freezes or delays while waiting for Google!
                 await asyncio.to_thread(self.load_data)
             except Exception as e:
