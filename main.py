@@ -12,7 +12,7 @@ from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
 # 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
-GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxlUNiWZGRcB7HOnCS-UlAvmKO9kfv_GTBtj1ICAzghHKYkzLdhyhFDpQ4FBOIJaVgP/exec"
+GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec"
 
 
 # Setup logging
@@ -33,7 +33,7 @@ faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
 # --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
 async def save_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbxlUNiWZGRcB7HOnCS-UlAvmKO9kfv_GTBtj1ICAzghHKYkzLdhyhFDpQ4FBOIJaVgP/exec":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec":
         return 
     try:
         # We now use simple GET links which Google handles perfectly!
@@ -46,7 +46,7 @@ async def save_user(user_id):
 
 # --- FEATURE: REMOVE BLOCKED USER FROM GOOGLE SHEETS ---
 async def remove_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbxlUNiWZGRcB7HOnCS-UlAvmKO9kfv_GTBtj1ICAzghHKYkzLdhyhFDpQ4FBOIJaVgP/exec":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec":
         return 
     try:
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=delete"
