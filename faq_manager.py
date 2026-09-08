@@ -74,12 +74,14 @@ class FAQManager:
 
         return None
         
-    async def auto_reload_task(self):
+        async def auto_reload_task(self):
         while True:
-            # Check the Google Sheet every 5 minutes to avoid being blocked by Google
+            # Check the Google Sheet every 5 minutes
             await asyncio.sleep(60 * 5)
             try:
-                logger.info("Auto-reloading data from Google Sheets...")
-                self.load_data()
+                logger.info("Auto-reloading data from Google Sheets in the background...")
+                # NEW: This forces the Google download to happen in a separate background thread, 
+                # so your Telegram bot NEVER freezes or delays while waiting for Google!
+                await asyncio.to_thread(self.load_data)
             except Exception as e:
                 logger.error(f"Error in auto_reload_task: {e}")
