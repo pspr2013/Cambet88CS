@@ -59,12 +59,11 @@ WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await save_user(message.from_user.id) # Forced to wait for Google!
+    await save_user(message.from_user.id) 
     
-    welcome_text = (
-        "👋 <b>Welcome to our Customer Support Bot!</b>\n\n"
-        "How can we help you today? You can type your question below, or use the buttons to browse our FAQ topics."
-    )
+    # Updated to your custom Khmer message!
+    welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន! តើបងមានអ្វីខ្ញុំអាចជួយបាន?</b>"
+    
     try:
         await message.answer_photo(
             photo=WELCOME_IMAGE_URL,
