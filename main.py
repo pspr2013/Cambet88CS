@@ -12,7 +12,7 @@ from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
 # 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
-GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyG5EydDXO6xdXTwsp5qpL35_3ZST2uNTEKJd5f8VQ0uchePkFHvbFUxhNzCFqpSpUt/exec"
+GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec"
 
 
 # Setup logging
@@ -48,6 +48,15 @@ def get_categories_keyboard():
         keyboard.append([InlineKeyboardButton(text=cat, callback_data=f"cat_{cat}")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+async def remove_user(user_id):
+    if GOOGLE_APPS_SCRIPT_URL == "PASTE_YOUR_LONG_WEB_APP_URL_HERE":
+        return 
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Notice the action="delete" part!
+            await session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id), "action": "delete"})
+    except Exception as e:
+        logger.error(f"Failed to delete user from Google Sheets: {e}")
 
 # --- FEATURE: WELCOME IMAGE ---
 WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q=80&w=1000&auto=format&fit=crop"
