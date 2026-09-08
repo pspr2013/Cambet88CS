@@ -36,11 +36,11 @@ async def save_user(user_id):
     if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec":
         return 
     try:
-        # We now use simple GET links which Google handles perfectly!
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=save"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
-                await response.text() 
+                result = await response.text() 
+                logger.info(f"Save User Result: {result}") # This will show in Render Logs!
     except Exception as e:
         logger.error(f"Failed to save user: {e}")
 
@@ -53,7 +53,7 @@ async def remove_user(user_id):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 result = await response.text()
-                logger.info(f"Google Sheet delete response: {result}")
+                logger.info(f"Delete User Result: {result}")
     except Exception as e:
         logger.error(f"Failed to delete user: {e}")
 
@@ -71,11 +71,11 @@ WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    asyncio.create_task(save_user(message.from_user.id))
+    await save_user(message.from_user.id) # Forced to wait for Google!
     
     welcome_text = (
-        "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន Bot!</b>\n\n"
-        "លោកអ្នកអាចសរសេរចោទជាសំនួរមកកាន់ខ្ញុំ រឺ ក៏ចុចប៊ូតុងខាងក្រោមដើម្បីរកប្រធានបទ FAQ៖"
+        "👋 <b>Welcome to our Customer Support Bot!</b>\n\n"
+        "How can we help you today? You can type your question below, or use the buttons to browse our FAQ topics."
     )
     try:
         await message.answer_photo(
@@ -133,9 +133,7 @@ async def cmd_broadcast(message: types.Message):
                 
             success += 1
             await asyncio.sleep(0.1)
-        except Exception as e:
-            # If they blocked the bot, we MUST await the remove function so it finishes deleting before moving on!
-            logger.warning(f"Broadcast failed for {uid}. Removing from Google Sheet.")
+        except Exception:
             await remove_user(uid)
             
     await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.\n*(Any customers who blocked the bot have been automatically removed from your list).*")
@@ -143,7 +141,7 @@ async def cmd_broadcast(message: types.Message):
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    asyncio.create_task(save_user(message.from_user.id))
+    await save_user(message.from_user.id)
     help_text = (
         "Just send me your question and I'll try my best to answer it!\n"
         "Commands:\n"
@@ -156,7 +154,7 @@ async def cmd_help(message: types.Message):
 
 @dp.message(Command("faq"))
 async def cmd_faq(message: types.Message):
-    asyncio.create_task(save_user(message.from_user.id))
+    await save_user(message.from_user.id)
     await message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
 
 @dp.message(Command("reload"))
@@ -172,7 +170,7 @@ async def cmd_reload(message: types.Message):
 # --- FEATURE: DIRECT ANSWER ON CATEGORY CLICK ---
 @dp.callback_query(F.data.startswith("cat_"))
 async def process_category_callback(callback_query: types.CallbackQuery):
-    asyncio.create_task(save_user(callback_query.from_user.id))
+    await save_user(callback_query.from_user.id)
     category = callback_query.data[4:]
     
     match_data = faq_manager.find_answer(category)
@@ -220,7 +218,7 @@ async def process_question(message: types.Message):
     if message.from_user.id == ADMIN_USER_ID:
         return
 
-    asyncio.create_task(save_user(message.from_user.id)) 
+    await save_user(message.from_user.id) 
     
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     await asyncio.sleep(0.5)
