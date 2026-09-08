@@ -49,7 +49,7 @@ def get_categories_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 async def remove_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "PASTE_YOUR_LONG_WEB_APP_URL_HERE":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
         return 
     try:
         async with aiohttp.ClientSession() as session:
@@ -115,7 +115,7 @@ async def cmd_broadcast(message: types.Message):
     await message.answer(f"🚀 Starting broadcast to {len(known_users)} customers...")
     success = 0
     
-    for uid in known_users:
+        for uid in known_users:
         try:
             if message.photo:
                 await bot.send_photo(uid, photo=message.photo[-1].file_id, caption=clean_text, parse_mode="HTML")
@@ -125,11 +125,13 @@ async def cmd_broadcast(message: types.Message):
                 await bot.send_message(uid, clean_text, parse_mode="HTML")
                 
             success += 1
-            await asyncio.sleep(0.1) # Prevent getting blocked by Telegram limits
-        except Exception:
-            pass 
+            await asyncio.sleep(0.1)
             
-    await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.")
+        except Exception:
+            # If the message fails (e.g., they blocked the bot), delete them from the Google Sheet!
+            asyncio.create_task(remove_user(uid))
+            
+    await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.\n*(Any customers who blocked the bot have been removed from your list).*")
 
 
 @dp.message(Command("help"))
