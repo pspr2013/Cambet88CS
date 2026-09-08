@@ -33,7 +33,7 @@ faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
 # --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
 async def save_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "PASTE_YOUR_LONG_WEB_APP_URL_HERE":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
         return # Skip if URL isn't set yet
     try:
         async with aiohttp.ClientSession() as session:
