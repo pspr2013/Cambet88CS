@@ -12,7 +12,7 @@ from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
 # 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
-GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec"
+GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwRDpq4K4COJlxmU7XOuuogwTjJdpGXwcbdb8Tm3feM-YmxjYkiaRYJW8EUROxUeh1H/exec"
 
 
 # Setup logging
@@ -33,7 +33,7 @@ faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
 # --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
 async def save_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbwRDpq4K4COJlxmU7XOuuogwTjJdpGXwcbdb8Tm3feM-YmxjYkiaRYJW8EUROxUeh1H/exec":
         return 
     try:
         async with aiohttp.ClientSession() as session:
@@ -45,7 +45,7 @@ async def save_user(user_id):
 
 # --- FEATURE: REMOVE BLOCKED USER FROM GOOGLE SHEETS ---
 async def remove_user(user_id):
-    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbzXU6USocPml45c1FkCUTDQvlrLccuLoiXEyUtISBkbsWKPJNctD9qQp9o7DjzpTt8R/exec":
+    if GOOGLE_APPS_SCRIPT_URL == "https://script.google.com/macros/s/AKfycbwRDpq4K4COJlxmU7XOuuogwTjJdpGXwcbdb8Tm3feM-YmxjYkiaRYJW8EUROxUeh1H/exec":
         return 
     try:
         async with aiohttp.ClientSession() as session:
