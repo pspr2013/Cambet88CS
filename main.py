@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import re
+import os
+import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -8,6 +10,10 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
 from faq_manager import FAQManager
 from web_keepalive import start_web_server
+
+# 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
+GOOGLE_APPS_SCRIPT_URL = "PASTE_YOUR_LONG_WEB_APP_URL_HERE"
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -25,6 +31,16 @@ except Exception as e:
 dp = Dispatcher()
 faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
+# --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
+async def save_user(user_id):
+    if GOOGLE_APPS_SCRIPT_URL == "PASTE_YOUR_LONG_WEB_APP_URL_HERE":
+        return # Skip if URL isn't set yet
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.post(GOOGLE_APPS_SCRIPT_URL, data={"user_id": str(user_id)})
+    except Exception as e:
+        logger.error(f"Failed to save user to Google Sheets: {e}")
+
 def get_categories_keyboard():
     categories = faq_manager.get_categories()
     keyboard = []
@@ -32,44 +48,112 @@ def get_categories_keyboard():
         keyboard.append([InlineKeyboardButton(text=cat, callback_data=f"cat_{cat}")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+
+# --- FEATURE: WELCOME IMAGE ---
+WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q=80&w=1000&auto=format&fit=crop"
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer(
-        "Welcome to the FAQ Bot! Ask me a question, or use /faq to browse topics.",
-        reply_markup=get_categories_keyboard()
+    asyncio.create_task(save_user(message.from_user.id)) # Save to Google Sheets!
+    
+    welcome_text = (
+        "👋 <b>Welcome to our Customer Support Bot!</b>\n\n"
+        "How can we help you today? You can type your question below, or use the buttons to browse our FAQ topics."
     )
+    try:
+        await message.answer_photo(
+            photo=WELCOME_IMAGE_URL,
+            caption=welcome_text,
+            reply_markup=get_categories_keyboard(),
+            parse_mode="HTML"
+        )
+    except:
+        await message.answer(welcome_text, reply_markup=get_categories_keyboard(), parse_mode="HTML")
+
+
+# --- FEATURE: BROADCAST FROM GOOGLE SHEETS ---
+@dp.message(Command("broadcast"))
+async def cmd_broadcast(message: types.Message):
+    if message.from_user.id != ADMIN_USER_ID:
+        return
+        
+    raw_text = message.text or message.caption or ""
+    clean_text = raw_text.replace("/broadcast", "").strip()
+    
+    if not clean_text and not message.photo and not message.video:
+        await message.answer("⚠️ Please provide a message or attach a picture. Example:\n`/broadcast We have a sale today!`", parse_mode="Markdown")
+        return
+
+    await message.answer("🔄 Fetching customer list from your Google Sheet...")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(GOOGLE_APPS_SCRIPT_URL) as response:
+                text_data = await response.text()
+                
+        # Parse the comma-separated IDs returned from Google
+        if not text_data.strip():
+            known_users = []
+        else:
+            known_users = [int(x) for x in text_data.split(",") if x.strip().isdigit()]
+    except Exception as e:
+        await message.answer(f"❌ Failed to fetch users from Google Sheets: {e}")
+        return
+        
+    if not known_users:
+        await message.answer("⚠️ No customers found in the Google Sheet yet!")
+        return
+        
+    await message.answer(f"🚀 Starting broadcast to {len(known_users)} customers...")
+    success = 0
+    
+    for uid in known_users:
+        try:
+            if message.photo:
+                await bot.send_photo(uid, photo=message.photo[-1].file_id, caption=clean_text, parse_mode="HTML")
+            elif message.video:
+                await bot.send_video(uid, video=message.video.file_id, caption=clean_text, parse_mode="HTML")
+            else:
+                await bot.send_message(uid, clean_text, parse_mode="HTML")
+                
+            success += 1
+            await asyncio.sleep(0.1) # Prevent getting blocked by Telegram limits
+        except Exception:
+            pass 
+            
+    await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.")
+
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
+    asyncio.create_task(save_user(message.from_user.id))
     help_text = (
         "Just send me your question and I'll try my best to answer it!\n"
         "Commands:\n"
         "/start - Welcome message\n"
-        "/help - Show this help\n"
         "/faq - Browse FAQ categories\n"
     )
     if message.from_user.id == ADMIN_USER_ID:
-        help_text += "/reload - Reload FAQ data from Excel"
-    await message.answer(help_text)
+        help_text += "\n<b>Admin Commands:</b>\n/reload - Reload FAQ data\n/broadcast [msg] - Message all users"
+    await message.answer(help_text, parse_mode="HTML")
 
 @dp.message(Command("faq"))
 async def cmd_faq(message: types.Message):
+    asyncio.create_task(save_user(message.from_user.id))
     await message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
 
 @dp.message(Command("reload"))
 async def cmd_reload(message: types.Message):
     if message.from_user.id != ADMIN_USER_ID:
-        await message.answer("You are not authorized to use this command.")
         return
-    
     success = faq_manager.load_data()
     if success:
-        await message.answer("FAQ data reloaded successfully!")
+        await message.answer("✅ FAQ data reloaded successfully!")
     else:
-        await message.answer("Failed to reload FAQ data. Check logs.")
+        await message.answer("❌ Failed to reload FAQ data. Check logs.")
 
 @dp.callback_query(F.data.startswith("cat_"))
 async def process_category_callback(callback_query: types.CallbackQuery):
+    asyncio.create_task(save_user(callback_query.from_user.id))
     category = callback_query.data[4:]
     questions = faq_manager.get_questions_by_category(category)
     if not questions:
@@ -81,43 +165,42 @@ async def process_category_callback(callback_query: types.CallbackQuery):
         await callback_query.message.answer(text, parse_mode="HTML")
     await callback_query.answer()
 
-# --- NEW: ADMIN REPLY HANDLER ---
-# This listens for the Admin replying to a forwarded message
+
 @dp.message(F.reply_to_message & (F.from_user.id == ADMIN_USER_ID))
 async def admin_reply_handler(message: types.Message):
-    # Support checking text OR captions if you replied to an image log
     replied_text = message.reply_to_message.text or message.reply_to_message.caption or ""
-    
-    # Extract the User ID and Original Message ID from the log
     user_match = re.search(r"ID:\s*(\d+)", replied_text)
     msg_match = re.search(r"MsgID:\s*(\d+)", replied_text)
     
     if user_match:
         user_id = int(user_match.group(1))
-        
-        # Check if we have the original message ID to attach the reply to
         reply_to_message_id = None
         if msg_match:
             reply_to_message_id = int(msg_match.group(1))
             
         try:
-            # COPY_TO is powerful! It supports text, photos, voice notes, stickers, and documents.
             await message.copy_to(
                 chat_id=user_id,
                 reply_to_message_id=reply_to_message_id
             )
-            await message.answer("✅ Your reply (and attachments) was successfully sent!")
+            await message.answer("✅ Your reply was successfully sent!")
         except Exception as e:
-            await message.answer(f"❌ Failed to send message. They might have blocked the bot. Error: {e}")
+            await message.answer(f"❌ Failed to send message. Error: {e}")
     else:
         await message.answer("❌ Could not find the User ID. Make sure you are replying to a log message.")
+
 
 # --- CUSTOMER QUESTION HANDLER ---
 @dp.message(F.text)
 async def process_question(message: types.Message):
-    # Don't process normal text from the admin as a FAQ question
     if message.from_user.id == ADMIN_USER_ID:
         return
+
+    asyncio.create_task(save_user(message.from_user.id)) # Save to Google Sheets!
+    
+    # Show "typing..." at the top of the customer's screen
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    await asyncio.sleep(0.5)
 
     user_text = message.text
     match_data = faq_manager.find_answer(user_text)
@@ -125,27 +208,20 @@ async def process_question(message: types.Message):
     if match_data:
         answer_text = match_data["answer"]
         image_url = match_data["image_url"]
-        
         try:
-            # If the excel file has a web link in the image_url column
             if image_url and image_url.startswith("http"):
                 await message.answer_photo(photo=image_url, caption=answer_text, parse_mode="HTML")
                 bot_response_summary = f"✅ Answered with Image:\n💬 {answer_text}"
             else:
-                # If there is no picture, just send normal text
                 await message.answer(answer_text, parse_mode="HTML")
                 bot_response_summary = f"✅ Answered automatically with:\n💬 {answer_text}"
-                
         except Exception as img_error:
-            # If the picture link is broken or invalid, fall back to just text
             await message.answer(answer_text, parse_mode="HTML")
-            bot_response_summary = f"✅ Answered automatically (Image failed to load, sent text instead)"
+            bot_response_summary = f"✅ Answered automatically (Image failed to load)"
     else:
-        # No answer found, send the Khmer wait message
         await message.answer("សូមបងរងចាំបន្តិច")
         bot_response_summary = "❌ No match (needs human reply)."
         
-    # Send the log to the Admin so they can reply
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
     admin_log = (
         f"🚨 <b>NEW CUSTOMER QUESTION</b>\n"
@@ -160,6 +236,7 @@ async def process_question(message: types.Message):
         await bot.send_message(ADMIN_USER_ID, admin_log, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Could not send log to admin: {e}")
+
 
 async def main():
     if not BOT_TOKEN:
