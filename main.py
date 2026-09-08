@@ -54,6 +54,14 @@ async def remove_user(user_id):
         logger.error(f"Failed to delete user: {e}")
 
 
+def get_categories_keyboard():
+    categories = faq_manager.get_categories()
+    keyboard = []
+    for cat in categories:
+        keyboard.append([InlineKeyboardButton(text=cat, callback_data=f"cat_{cat}")])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
 # --- FEATURE: WELCOME IMAGE ---
 WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q=80&w=1000&auto=format&fit=crop"
 
@@ -61,8 +69,7 @@ WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q
 async def cmd_start(message: types.Message):
     await save_user(message.from_user.id) 
     
-    # Updated to your custom Khmer message!
-    welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន! តើបងមានអ្វីខ្ញុំអាចជួយបាន?</b>"
+    welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន តើមានអ្វីខ្ញុំអាចជួយបាន?</b>"
     
     try:
         await message.answer_photo(
