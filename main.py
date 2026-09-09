@@ -12,7 +12,7 @@ from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
 # 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
-GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec"
+GOOGLE_APPS_SCRIPT_URL = "PASTE_YOUR_LONG_WEB_APP_URL_HERE"
 
 
 # Setup logging
@@ -204,6 +204,32 @@ async def admin_reply_handler(message: types.Message):
             await message.answer(f"❌ Failed to send message. Error: {e}")
     else:
         await message.answer("❌ Could not find the User ID. Make sure you are replying to a log message.")
+
+# --- CUSTOMER MEDIA/FILE HANDLER ---
+@dp.message(F.photo | F.video | F.document | F.audio | F.voice | F.sticker)
+async def process_media(message: types.Message):
+    if message.from_user.id == ADMIN_USER_ID:
+        return
+
+    await save_user(message.from_user.id) 
+    await message.answer("សូមបងរងចាំបន្តិច")
+    
+    username = f"@{message.from_user.username}" if message.from_user.username else "No username"
+    
+    admin_log = (
+        f"🚨 <b>NEW CUSTOMER FILE/MEDIA</b>\n"
+        f"👤 <b>User:</b> {message.from_user.full_name} ({username})\n"
+        f"🆔 <b>ID:</b> {message.from_user.id}\n"
+        f"📝 <b>MsgID:</b> {message.message_id}\n\n"
+        f"<i>(👇 Customer sent the file below. Swipe left on THIS text message to reply to them!)</i>"
+    )
+    try:
+        # We send the text log first so you can reply to it
+        await bot.send_message(ADMIN_USER_ID, admin_log, parse_mode="HTML")
+        # Then we forward the actual media so you can see/hear it
+        await message.forward(ADMIN_USER_ID)
+    except Exception as e:
+        logger.error(f"Could not forward media to admin: {e}")
 
 
 # --- CUSTOMER QUESTION HANDLER ---
