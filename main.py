@@ -6,6 +6,7 @@ import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 
 from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
 from faq_manager import FAQManager
@@ -14,6 +15,9 @@ from web_keepalive import start_web_server
 # 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
 GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec"
 
+# --- SUPPORT MULTIPLE ADMINS ---
+raw_admins = os.getenv("ADMIN_USER_ID", str(ADMIN_USER_ID))
+ADMIN_IDS = [int(x.strip()) for x in str(raw_admins).split(",") if x.strip().isdigit()]
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -37,10 +41,9 @@ async def save_user(user_id):
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=save"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
-                result = await response.text() 
-                logger.info(f"Save User Result: {result}") 
+                await response.text() 
     except Exception as e:
-        logger.error(f"Failed to save user: {e}")
+        pass
 
 # --- FEATURE: REMOVE BLOCKED USER FROM GOOGLE SHEETS ---
 async def remove_user(user_id):
@@ -48,11 +51,9 @@ async def remove_user(user_id):
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=delete"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
-                result = await response.text()
-                logger.info(f"Delete User Result: {result}")
+                await response.text()
     except Exception as e:
-        logger.error(f"Failed to delete user: {e}")
-
+        pass
 
 def get_categories_keyboard():
     categories = faq_manager.get_categories()
@@ -61,6 +62,15 @@ def get_categories_keyboard():
         keyboard.append([InlineKeyboardButton(text=cat, callback_data=f"cat_{cat}")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+# --- FEATURE: BACK TO MENU BUTTON ---
+def get_back_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Back to Menu", callback_data="back_to_menu")]])
+
+@dp.callback_query(F.data == "back_to_menu")
+async def process_back_menu(callback_query: types.CallbackQuery):
+    await save_user(callback_query.from_user.id)
+    await callback_query.message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
+    await callback_query.answer()
 
 # --- FEATURE: WELCOME IMAGE ---
 WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q=80&w=1000&auto=format&fit=crop"
@@ -81,11 +91,10 @@ async def cmd_start(message: types.Message):
     except:
         await message.answer(welcome_text, reply_markup=get_categories_keyboard(), parse_mode="HTML")
 
-
 # --- FEATURE: BROADCAST FROM GOOGLE SHEETS ---
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: types.Message):
-    if message.from_user.id != ADMIN_USER_ID:
+    if message.from_user.id not in ADMIN_IDS:
         return
         
     raw_text = message.text or message.caption or ""
@@ -127,11 +136,20 @@ async def cmd_broadcast(message: types.Message):
                 
             success += 1
             await asyncio.sleep(0.1)
-        except Exception:
+            
+        except TelegramRetryAfter as e:
+            # FIX: If Telegram gets overwhelmed, pause safely instead of deleting the user!
+            logger.warning(f"Rate limited by Telegram. Pausing for {e.retry_after} seconds.")
+            await asyncio.sleep(e.retry_after)
+            
+        except (TelegramForbiddenError, TelegramBadRequest):
+            # FIX: Only delete if the user explicitly blocked the bot or deleted their account.
             await remove_user(uid)
             
+        except Exception:
+            pass # Ignore other random network errors
+            
     await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.\n*(Any customers who blocked the bot have been automatically removed from your list).*")
-
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
@@ -142,7 +160,7 @@ async def cmd_help(message: types.Message):
         "/start - Welcome message\n"
         "/faq - Browse FAQ categories\n"
     )
-    if message.from_user.id == ADMIN_USER_ID:
+    if message.from_user.id in ADMIN_IDS:
         help_text += "\n<b>Admin Commands:</b>\n/reload - Reload FAQ data\n/broadcast [msg] - Message all users"
     await message.answer(help_text, parse_mode="HTML")
 
@@ -153,7 +171,7 @@ async def cmd_faq(message: types.Message):
 
 @dp.message(Command("reload"))
 async def cmd_reload(message: types.Message):
-    if message.from_user.id != ADMIN_USER_ID:
+    if message.from_user.id not in ADMIN_IDS:
         return
     success = faq_manager.load_data()
     if success:
@@ -174,18 +192,17 @@ async def process_category_callback(callback_query: types.CallbackQuery):
         image_url = match_data["image_url"]
         try:
             if image_url and image_url.startswith("http"):
-                await callback_query.message.answer_photo(photo=image_url, caption=answer_text, parse_mode="HTML")
+                await callback_query.message.answer_photo(photo=image_url, caption=answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
             else:
-                await callback_query.message.answer(answer_text, parse_mode="HTML")
+                await callback_query.message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
         except Exception:
-            await callback_query.message.answer(answer_text, parse_mode="HTML")
+            await callback_query.message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
     else:
         await callback_query.message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
         
     await callback_query.answer()
 
-
-@dp.message(F.reply_to_message & (F.from_user.id == ADMIN_USER_ID))
+@dp.message(F.reply_to_message & (F.from_user.id.in_(ADMIN_IDS)))
 async def admin_reply_handler(message: types.Message):
     replied_text = message.reply_to_message.text or message.reply_to_message.caption or ""
     user_match = re.search(r"ID:\s*(\d+)", replied_text)
@@ -208,7 +225,7 @@ async def admin_reply_handler(message: types.Message):
 # --- CUSTOMER MEDIA/FILE HANDLER ---
 @dp.message(F.photo | F.video | F.document | F.audio | F.voice | F.sticker)
 async def process_media(message: types.Message):
-    if message.from_user.id == ADMIN_USER_ID:
+    if message.from_user.id in ADMIN_IDS:
         return
 
     await save_user(message.from_user.id) 
@@ -223,19 +240,18 @@ async def process_media(message: types.Message):
         f"📝 <b>MsgID:</b> {message.message_id}\n\n"
         f"<i>(👇 Customer sent the file below. Swipe left on THIS text message to reply to them!)</i>"
     )
-    try:
-        # We send the text log first so you can reply to it
-        await bot.send_message(ADMIN_USER_ID, admin_log, parse_mode="HTML")
-        # Then we forward the actual media so you can see/hear it
-        await message.forward(ADMIN_USER_ID)
-    except Exception as e:
-        logger.error(f"Could not forward media to admin: {e}")
-
+    
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, admin_log, parse_mode="HTML")
+            await message.forward(admin_id)
+        except Exception:
+            pass
 
 # --- CUSTOMER QUESTION HANDLER ---
 @dp.message(F.text)
 async def process_question(message: types.Message):
-    if message.from_user.id == ADMIN_USER_ID:
+    if message.from_user.id in ADMIN_IDS:
         return
 
     await save_user(message.from_user.id) 
@@ -251,13 +267,13 @@ async def process_question(message: types.Message):
         image_url = match_data["image_url"]
         try:
             if image_url and image_url.startswith("http"):
-                await message.answer_photo(photo=image_url, caption=answer_text, parse_mode="HTML")
+                await message.answer_photo(photo=image_url, caption=answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
                 bot_response_summary = f"✅ Answered with Image:\n💬 {answer_text}"
             else:
-                await message.answer(answer_text, parse_mode="HTML")
+                await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
                 bot_response_summary = f"✅ Answered automatically with:\n💬 {answer_text}"
         except Exception:
-            await message.answer(answer_text, parse_mode="HTML")
+            await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
             bot_response_summary = f"✅ Answered automatically (Image failed to load)"
     else:
         await message.answer("សូមបងរងចាំបន្តិច")
@@ -273,11 +289,11 @@ async def process_question(message: types.Message):
         f"🤖 <b>Bot Action:</b> {bot_response_summary}\n\n"
         f"<i>(Swipe left / Reply directly to this message to answer the customer!)</i>"
     )
-    try:
-        await bot.send_message(ADMIN_USER_ID, admin_log, parse_mode="HTML")
-    except Exception as e:
-        logger.error(f"Could not send log to admin: {e}")
-
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, admin_log, parse_mode="HTML")
+        except Exception:
+            pass
 
 async def main():
     if not BOT_TOKEN:
