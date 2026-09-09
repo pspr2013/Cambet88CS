@@ -12,7 +12,7 @@ from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
 # 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
-GOOGLE_APPS_SCRIPT_URL = "PASTE_YOUR_LONG_WEB_APP_URL_HERE"
+GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec"
 
 
 # Setup logging
