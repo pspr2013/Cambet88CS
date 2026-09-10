@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import os
+import time  # <--- NEW: Required for the Spam Shield clock
 import aiohttp
 import html 
 from aiogram import Bot, Dispatcher, types, F
@@ -19,6 +20,30 @@ GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4
 # --- SUPPORT MULTIPLE ADMINS ---
 raw_admins = os.getenv("ADMIN_USER_ID", str(ADMIN_USER_ID))
 ADMIN_IDS = [int(x.strip()) for x in str(raw_admins).split(",") if x.strip().isdigit()]
+
+# --- CUSTOMER SPAM SHIELD ---
+user_last_message_time = {}
+SPAM_COOLDOWN_SECONDS = 1.5  # If they send >1 message per 1.5 seconds, ignore them!
+
+def is_spam(message: types.Message):
+    if message.from_user.id in ADMIN_IDS:
+        return False  # Admins can never be blocked
+        
+    # Let Photo Albums bypass the spam shield (Telegram sends albums instantly)
+    if message.media_group_id:
+        return False
+        
+    current_time = time.time()
+    user_id = message.from_user.id
+    
+    if user_id in user_last_message_time:
+        if current_time - user_last_message_time[user_id] < SPAM_COOLDOWN_SECONDS:
+            # Update the clock so if they KEEP spamming, they STAY blocked
+            user_last_message_time[user_id] = current_time
+            return True
+            
+    user_last_message_time[user_id] = current_time
+    return False
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -78,6 +103,7 @@ WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
+    if is_spam(message): return
     await save_user(message.from_user.id) 
     
     welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន តើមានអ្វីខ្ញុំអាចជួយបាន?</b>"
@@ -157,6 +183,7 @@ async def cmd_broadcast(message: types.Message):
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
+    if is_spam(message): return
     await save_user(message.from_user.id)
     help_text = (
         "Just send me your question and I'll try my best to answer it!\n"
@@ -170,6 +197,7 @@ async def cmd_help(message: types.Message):
 
 @dp.message(Command("faq"))
 async def cmd_faq(message: types.Message):
+    if is_spam(message): return
     await save_user(message.from_user.id)
     await message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
 
@@ -226,11 +254,11 @@ async def admin_reply_handler(message: types.Message):
     else:
         await message.answer("❌ Could not find the User ID. Make sure you are replying to a log message.")
 
-# --- FIX: CATCH ALL NON-TEXT MESSAGES (Photos, GIFs, Locations, Contacts) ---
+# --- CATCH ALL NON-TEXT MESSAGES (Photos, GIFs, Locations, Contacts) ---
 @dp.message(~F.text)
 async def process_media(message: types.Message):
-    if message.from_user.id in ADMIN_IDS:
-        return
+    if is_spam(message): return
+    if message.from_user.id in ADMIN_IDS: return
 
     await save_user(message.from_user.id) 
     await message.answer("សូមបងរងចាំបន្តិច")
@@ -259,8 +287,8 @@ async def process_media(message: types.Message):
 # --- CUSTOMER QUESTION HANDLER ---
 @dp.message(F.text)
 async def process_question(message: types.Message):
-    if message.from_user.id in ADMIN_IDS:
-        return
+    if is_spam(message): return
+    if message.from_user.id in ADMIN_IDS: return
 
     await save_user(message.from_user.id) 
     
