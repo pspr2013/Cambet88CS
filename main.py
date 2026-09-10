@@ -3,6 +3,7 @@ import logging
 import re
 import os
 import aiohttp
+import html  # <--- NEW IMPORT TO FIX THE INVISIBLE CUSTOMER BUG
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -142,18 +143,15 @@ async def cmd_broadcast(message: types.Message):
             await asyncio.sleep(e.retry_after)
             
         except TelegramForbiddenError:
-            # FIX: User explicitly blocked the bot
             await remove_user(uid)
             
         except TelegramBadRequest as e:
-            # FIX: If the error is a bad HTML character, DO NOT delete the user!
-            # Only delete if Telegram explicitly says the chat/user no longer exists.
             error_msg = str(e).lower()
             if "chat not found" in error_msg or "user is deactivated" in error_msg:
                 await remove_user(uid)
             
         except Exception:
-            pass # Ignore other random network errors
+            pass 
             
     await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.\n*(Any customers who blocked the bot have been automatically removed from your list).*")
 
@@ -239,9 +237,13 @@ async def process_media(message: types.Message):
     
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
     
+    # FIX: Clean the username and name so it doesn't break the HTML alert!
+    safe_name = html.escape(message.from_user.full_name)
+    safe_username = html.escape(username)
+    
     admin_log = (
         f"🚨 <b>NEW CUSTOMER FILE/MEDIA</b>\n"
-        f"👤 <b>User:</b> {message.from_user.full_name} ({username})\n"
+        f"👤 <b>User:</b> {safe_name} ({safe_username})\n"
         f"🆔 <b>ID:</b> {message.from_user.id}\n"
         f"📝 <b>MsgID:</b> {message.message_id}\n\n"
         f"<i>(👇 Customer sent the file below. Swipe left on THIS text message to reply to them!)</i>"
@@ -286,12 +288,18 @@ async def process_question(message: types.Message):
         bot_response_summary = "❌ No match (needs human reply)."
         
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
+    
+    # FIX: Clean the text and names so it doesn't break the HTML alert!
+    safe_name = html.escape(message.from_user.full_name)
+    safe_username = html.escape(username)
+    safe_text = html.escape(user_text)
+    
     admin_log = (
         f"🚨 <b>NEW CUSTOMER QUESTION</b>\n"
-        f"👤 <b>User:</b> {message.from_user.full_name} ({username})\n"
+        f"👤 <b>User:</b> {safe_name} ({safe_username})\n"
         f"🆔 <b>ID:</b> {message.from_user.id}\n"
         f"📝 <b>MsgID:</b> {message.message_id}\n"
-        f"💬 <b>Asked:</b> {user_text}\n"
+        f"💬 <b>Asked:</b> {safe_text}\n"
         f"🤖 <b>Bot Action:</b> {bot_response_summary}\n\n"
         f"<i>(Swipe left / Reply directly to this message to answer the customer!)</i>"
     )
