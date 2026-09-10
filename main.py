@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 import os
-import time  # <--- NEW: Required for the Spam Shield clock
+import time 
 import aiohttp
 import html 
 from aiogram import Bot, Dispatcher, types, F
@@ -17,28 +17,28 @@ from web_keepalive import start_web_server
 # 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
 GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec"
 
-# --- SUPPORT MULTIPLE ADMINS ---
+# --- SUPPORT MULTIPLE ADMINS & GROUP CHATS ---
 raw_admins = os.getenv("ADMIN_USER_ID", str(ADMIN_USER_ID))
-ADMIN_IDS = [int(x.strip()) for x in str(raw_admins).split(",") if x.strip().isdigit()]
+# FIX: lstrip('-') allows the bot to read Negative Numbers (Telegram Group IDs)
+ADMIN_IDS = [int(x.strip()) for x in str(raw_admins).split(",") if x.strip().lstrip('-').isdigit()]
+
+def is_admin(message: types.Message):
+    """Checks if the command comes from an Admin DM or the authorized Staff Group"""
+    return message.chat.id in ADMIN_IDS or message.from_user.id in ADMIN_IDS
 
 # --- CUSTOMER SPAM SHIELD ---
 user_last_message_time = {}
-SPAM_COOLDOWN_SECONDS = 1.5  # If they send >1 message per 1.5 seconds, ignore them!
+SPAM_COOLDOWN_SECONDS = 1.5  
 
 def is_spam(message: types.Message):
-    if message.from_user.id in ADMIN_IDS:
-        return False  # Admins can never be blocked
-        
-    # Let Photo Albums bypass the spam shield (Telegram sends albums instantly)
-    if message.media_group_id:
-        return False
+    if is_admin(message): return False
+    if message.media_group_id: return False
         
     current_time = time.time()
     user_id = message.from_user.id
     
     if user_id in user_last_message_time:
         if current_time - user_last_message_time[user_id] < SPAM_COOLDOWN_SECONDS:
-            # Update the clock so if they KEEP spamming, they STAY blocked
             user_last_message_time[user_id] = current_time
             return True
             
@@ -61,24 +61,22 @@ except Exception as e:
 dp = Dispatcher()
 faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
-# --- FEATURE: SAVE USER TO GOOGLE SHEETS ---
 async def save_user(user_id):
     try:
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=save"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 await response.text() 
-    except Exception as e:
+    except Exception:
         pass
 
-# --- FEATURE: REMOVE BLOCKED USER FROM GOOGLE SHEETS ---
 async def remove_user(user_id):
     try:
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=delete"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 await response.text()
-    except Exception as e:
+    except Exception:
         pass
 
 def get_categories_keyboard():
@@ -88,41 +86,33 @@ def get_categories_keyboard():
         keyboard.append([InlineKeyboardButton(text=cat, callback_data=f"cat_{cat}")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
-# --- FEATURE: BACK TO MENU BUTTON ---
 def get_back_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Back to Menu", callback_data="back_to_menu")]])
 
 @dp.callback_query(F.data == "back_to_menu")
 async def process_back_menu(callback_query: types.CallbackQuery):
+    if callback_query.message.chat.type != "private": return # ONLY ALLOW IN DMs
     await save_user(callback_query.from_user.id)
     await callback_query.message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
     await callback_query.answer()
 
-# --- FEATURE: WELCOME IMAGE ---
 WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q=80&w=1000&auto=format&fit=crop"
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
+    if message.chat.type != "private": return # ONLY ALLOW IN DMs
     if is_spam(message): return
     await save_user(message.from_user.id) 
     
     welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន តើមានអ្វីខ្ញុំអាចជួយបាន?</b>"
-    
     try:
-        await message.answer_photo(
-            photo=WELCOME_IMAGE_URL,
-            caption=welcome_text,
-            reply_markup=get_categories_keyboard(),
-            parse_mode="HTML"
-        )
+        await message.answer_photo(photo=WELCOME_IMAGE_URL, caption=welcome_text, reply_markup=get_categories_keyboard(), parse_mode="HTML")
     except:
         await message.answer(welcome_text, reply_markup=get_categories_keyboard(), parse_mode="HTML")
 
-# --- FEATURE: BROADCAST FROM GOOGLE SHEETS ---
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: types.Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+    if not is_admin(message): return
         
     raw_text = message.text or message.caption or ""
     clean_text = raw_text.replace("/broadcast", "").strip()
@@ -165,58 +155,49 @@ async def cmd_broadcast(message: types.Message):
             await asyncio.sleep(0.1)
             
         except TelegramRetryAfter as e:
-            logger.warning(f"Rate limited by Telegram. Pausing for {e.retry_after} seconds.")
             await asyncio.sleep(e.retry_after)
-            
         except TelegramForbiddenError:
             await remove_user(uid)
-            
         except TelegramBadRequest as e:
             error_msg = str(e).lower()
             if "chat not found" in error_msg or "user is deactivated" in error_msg:
                 await remove_user(uid)
-            
         except Exception:
             pass 
             
-    await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.\n*(Any customers who blocked the bot have been automatically removed from your list).*")
+    await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.")
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
+    if message.chat.type != "private": return # ONLY ALLOW IN DMs
     if is_spam(message): return
     await save_user(message.from_user.id)
-    help_text = (
-        "Just send me your question and I'll try my best to answer it!\n"
-        "Commands:\n"
-        "/start - Welcome message\n"
-        "/faq - Browse FAQ categories\n"
-    )
-    if message.from_user.id in ADMIN_IDS:
+    help_text = "Just send me your question and I'll try my best to answer it!\nCommands:\n/start - Welcome message\n/faq - Browse FAQ categories\n"
+    if is_admin(message):
         help_text += "\n<b>Admin Commands:</b>\n/reload - Reload FAQ data\n/broadcast [msg] - Message all users"
     await message.answer(help_text, parse_mode="HTML")
 
 @dp.message(Command("faq"))
 async def cmd_faq(message: types.Message):
+    if message.chat.type != "private": return # ONLY ALLOW IN DMs
     if is_spam(message): return
     await save_user(message.from_user.id)
     await message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
 
 @dp.message(Command("reload"))
 async def cmd_reload(message: types.Message):
-    if message.from_user.id not in ADMIN_IDS:
-        return
+    if not is_admin(message): return
     success = faq_manager.load_data()
     if success:
         await message.answer("✅ FAQ data reloaded successfully!")
     else:
         await message.answer("❌ Failed to reload FAQ data. Check logs.")
 
-# --- FEATURE: DIRECT ANSWER ON CATEGORY CLICK ---
 @dp.callback_query(F.data.startswith("cat_"))
 async def process_category_callback(callback_query: types.CallbackQuery):
+    if callback_query.message.chat.type != "private": return # ONLY ALLOW IN DMs
     await save_user(callback_query.from_user.id)
     category = callback_query.data[4:]
-    
     match_data = faq_manager.find_answer(category)
     
     if match_data:
@@ -231,11 +212,13 @@ async def process_category_callback(callback_query: types.CallbackQuery):
             await callback_query.message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
     else:
         await callback_query.message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
-        
     await callback_query.answer()
 
-@dp.message(F.reply_to_message & (F.from_user.id.in_(ADMIN_IDS)))
+# --- ADMIN REPLY HANDLER (Works in Staff Group) ---
+@dp.message(F.reply_to_message)
 async def admin_reply_handler(message: types.Message):
+    if not is_admin(message): return # ONLY AUTHORIZED GROUPS/ADMINS CAN REPLY
+    
     replied_text = message.reply_to_message.text or message.reply_to_message.caption or ""
     user_match = re.search(r"ID:\s*(\d+)", replied_text)
     msg_match = re.search(r"MsgID:\s*(\d+)", replied_text)
@@ -252,20 +235,19 @@ async def admin_reply_handler(message: types.Message):
         except Exception as e:
             await message.answer(f"❌ Failed to send message. Error: {e}")
     else:
-        await message.answer("❌ Could not find the User ID. Make sure you are replying to a log message.")
+        # Silently ignore to prevent spamming the staff group if they accidentally reply to a normal message
+        pass
 
-# --- CATCH ALL NON-TEXT MESSAGES (Photos, GIFs, Locations, Contacts) ---
 @dp.message(~F.text)
 async def process_media(message: types.Message):
+    if message.chat.type != "private": return # ONLY ALLOW IN DMs
     if is_spam(message): return
-    if message.from_user.id in ADMIN_IDS: return
+    if is_admin(message): return
 
     await save_user(message.from_user.id) 
     await message.answer("សូមបងរងចាំបន្តិច")
-    
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
     
-    # Clean the username and name so it doesn't break the HTML alert!
     safe_name = html.escape(message.from_user.full_name)
     safe_username = html.escape(username)
     
@@ -274,7 +256,7 @@ async def process_media(message: types.Message):
         f"👤 <b>User:</b> {safe_name} ({safe_username})\n"
         f"🆔 <b>ID:</b> {message.from_user.id}\n"
         f"📝 <b>MsgID:</b> {message.message_id}\n\n"
-        f"<i>(👇 Customer sent the attachment below. Swipe left on THIS text message to reply to them!)</i>"
+        f"<i>(👇 Swipe left on THIS text message to reply to them!)</i>"
     )
     
     for admin_id in ADMIN_IDS:
@@ -284,14 +266,13 @@ async def process_media(message: types.Message):
         except Exception:
             pass
 
-# --- CUSTOMER QUESTION HANDLER ---
 @dp.message(F.text)
 async def process_question(message: types.Message):
+    if message.chat.type != "private": return # ONLY ALLOW IN DMs
     if is_spam(message): return
-    if message.from_user.id in ADMIN_IDS: return
+    if is_admin(message): return
 
     await save_user(message.from_user.id) 
-    
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     await asyncio.sleep(0.5)
 
@@ -317,7 +298,6 @@ async def process_question(message: types.Message):
         
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
     
-    # Clean the text and names so it doesn't break the HTML alert!
     safe_name = html.escape(message.from_user.full_name)
     safe_username = html.escape(username)
     safe_text = html.escape(user_text)
