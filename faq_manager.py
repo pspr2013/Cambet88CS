@@ -1,90 +1,95 @@
 import pandas as pd
-from rapidfuzz import fuzz
 import asyncio
 import logging
-import os
+from thefuzz import process, fuzz
 
 logger = logging.getLogger(__name__)
 
 class FAQManager:
-    def __init__(self, sheet_url):
-        self.sheet_url = sheet_url
+    def __init__(self, csv_url):
+        self.csv_url = csv_url
         self.df = None
-        self.categories = []
         self.load_data()
 
     def load_data(self):
         try:
-            if not self.sheet_url:
-                logger.warning("GOOGLE_SHEET_URL is not set!")
-                return False
-
-            # Pandas can automatically download and read a CSV from a web link!
-            self.df = pd.read_csv(self.sheet_url)
-            
-            if 'image_url' not in self.df.columns:
-                self.df['image_url'] = ""
-                
-            self.df = self.df.fillna("")
-            self.categories = [c for c in self.df['category'].unique() if str(c).strip()]
+            # We add dtype=str to ensure pandas doesn't convert numbers
+            df = pd.read_csv(self.csv_url, dtype=str)
+            df.fillna("", inplace=True)
+            self.df = df
             logger.info("FAQ data loaded successfully from Google Sheets.")
             return True
         except Exception as e:
-            logger.error(f"Error loading FAQ data from Google Sheets: {e}")
+            logger.error(f"Failed to load FAQ data: {e}")
             return False
 
+    async def auto_reload_task(self):
+        while True:
+            await asyncio.sleep(300)  # Reload every 5 minutes
+            logger.info("Auto reloading data from Google Sheets in the background...")
+            self.load_data()
+
     def get_categories(self):
-        return self.categories
-        
-    def get_questions_by_category(self, category):
         if self.df is None or self.df.empty:
             return []
-        category_df = self.df[self.df['category'].str.lower() == category.lower()]
-        return category_df['question'].tolist()
+        if 'category' not in self.df.columns:
+            return []
+        cats = self.df['category'].unique()
+        return [c for c in cats if str(c).strip()]
 
     def find_answer(self, user_text):
         if self.df is None or self.df.empty:
             return None
+            
+        user_text_clean = str(user_text).strip().lower()
+        if not user_text_clean:
+            return None
 
-        user_text_lower = user_text.lower()
-
-        # Step 1: Check for exact/partial keyword matches
+        # --- FIX: EXACT MATCH CHECK ---
+        # The bot will now check if the user typed EXACTLY what is in the Excel sheet
+        # before it uses the fuzzy AI. This perfectly fixes the "?" issue!
         for index, row in self.df.iterrows():
-            keywords = [k.strip().lower() for k in str(row['keywords']).split(',') if k.strip()]
-            if any(k in user_text_lower for k in keywords):
-                return {"answer": str(row['answer']), "image_url": str(row['image_url']).strip()}
-            if user_text_lower in str(row['question']).lower():
-                return {"answer": str(row['answer']), "image_url": str(row['image_url']).strip()}
+            # Check keywords
+            if 'keywords' in row and str(row['keywords']).strip():
+                kws = [k.strip().lower() for k in str(row['keywords']).split(',')]
+                if user_text_clean in kws:
+                    return {"answer": str(row['answer']), "image_url": str(row.get('image_url', ''))}
+                    
+            # Check question
+            if 'question' in row and str(row['question']).strip().lower() == user_text_clean:
+                return {"answer": str(row['answer']), "image_url": str(row.get('image_url', ''))}
+                
+            # Check category
+            if 'category' in row and str(row['category']).strip().lower() == user_text_clean:
+                return {"answer": str(row['answer']), "image_url": str(row.get('image_url', ''))}
 
-        # Step 2: Fuzzy matching against questions and keywords
+        # --- FUZZY MATCHING (Typo AI) ---
         best_match = None
         best_score = 0
-        
-        for index, row in self.df.iterrows():
-            question = str(row['question'])
-            keywords_str = str(row['keywords'])
-            
-            q_score = fuzz.partial_ratio(user_text_lower, question.lower())
-            k_score = fuzz.partial_ratio(user_text_lower, keywords_str.lower())
-            
-            score = max(q_score, k_score)
-            if score > best_score:
-                best_score = score
-                best_match = {"answer": str(row['answer']), "image_url": str(row['image_url']).strip()}
+        best_row = None
 
-        if best_score >= 70:
-            return best_match
+        for index, row in self.df.iterrows():
+            choices = []
+            if 'keywords' in row and str(row['keywords']).strip():
+                choices.extend([k.strip() for k in str(row['keywords']).split(',')])
+            if 'question' in row and str(row['question']).strip():
+                choices.append(str(row['question']))
+
+            if not choices:
+                continue
+
+            match = process.extractOne(user_text_clean, choices, scorer=fuzz.token_set_ratio)
+            if match:
+                score = match[1]
+                if score > best_score:
+                    best_score = score
+                    best_row = row
+
+        # If the fuzzy score is higher than 70%, we accept it
+        if best_score > 70 and best_row is not None:
+            return {
+                "answer": str(best_row['answer']),
+                "image_url": str(best_row.get('image_url', ''))
+            }
 
         return None
-        
-    async def auto_reload_task(self):
-        while True:
-            # Check the Google Sheet every 5 minutes
-            await asyncio.sleep(60 * 5)
-            try:
-                logger.info("Auto-reloading data from Google Sheets in the background...")
-                # This forces the Google download to happen in a separate background thread, 
-                # so your Telegram bot NEVER freezes or delays while waiting for Google!
-                await asyncio.to_thread(self.load_data)
-            except Exception as e:
-                logger.error(f"Error in auto_reload_task: {e}")
