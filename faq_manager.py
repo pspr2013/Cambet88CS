@@ -1,7 +1,7 @@
 import pandas as pd
 import asyncio
 import logging
-from thefuzz import process, fuzz
+from fuzzywuzzy import process, fuzz
 
 logger = logging.getLogger(__name__)
 
