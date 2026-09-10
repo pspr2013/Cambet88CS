@@ -138,13 +138,19 @@ async def cmd_broadcast(message: types.Message):
             await asyncio.sleep(0.1)
             
         except TelegramRetryAfter as e:
-            # FIX: If Telegram gets overwhelmed, pause safely instead of deleting the user!
             logger.warning(f"Rate limited by Telegram. Pausing for {e.retry_after} seconds.")
             await asyncio.sleep(e.retry_after)
             
-        except (TelegramForbiddenError, TelegramBadRequest):
-            # FIX: Only delete if the user explicitly blocked the bot or deleted their account.
+        except TelegramForbiddenError:
+            # FIX: User explicitly blocked the bot
             await remove_user(uid)
+            
+        except TelegramBadRequest as e:
+            # FIX: If the error is a bad HTML character, DO NOT delete the user!
+            # Only delete if Telegram explicitly says the chat/user no longer exists.
+            error_msg = str(e).lower()
+            if "chat not found" in error_msg or "user is deactivated" in error_msg:
+                await remove_user(uid)
             
         except Exception:
             pass # Ignore other random network errors
