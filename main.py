@@ -3,7 +3,7 @@ import logging
 import re
 import os
 import aiohttp
-import html  # <--- NEW IMPORT TO FIX THE INVISIBLE CUSTOMER BUG
+import html 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -226,8 +226,8 @@ async def admin_reply_handler(message: types.Message):
     else:
         await message.answer("❌ Could not find the User ID. Make sure you are replying to a log message.")
 
-# --- CUSTOMER MEDIA/FILE HANDLER ---
-@dp.message(F.photo | F.video | F.document | F.audio | F.voice | F.sticker)
+# --- FIX: CATCH ALL NON-TEXT MESSAGES (Photos, GIFs, Locations, Contacts) ---
+@dp.message(~F.text)
 async def process_media(message: types.Message):
     if message.from_user.id in ADMIN_IDS:
         return
@@ -237,16 +237,16 @@ async def process_media(message: types.Message):
     
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
     
-    # FIX: Clean the username and name so it doesn't break the HTML alert!
+    # Clean the username and name so it doesn't break the HTML alert!
     safe_name = html.escape(message.from_user.full_name)
     safe_username = html.escape(username)
     
     admin_log = (
-        f"🚨 <b>NEW CUSTOMER FILE/MEDIA</b>\n"
+        f"🚨 <b>NEW CUSTOMER ATTACHMENT</b>\n"
         f"👤 <b>User:</b> {safe_name} ({safe_username})\n"
         f"🆔 <b>ID:</b> {message.from_user.id}\n"
         f"📝 <b>MsgID:</b> {message.message_id}\n\n"
-        f"<i>(👇 Customer sent the file below. Swipe left on THIS text message to reply to them!)</i>"
+        f"<i>(👇 Customer sent the attachment below. Swipe left on THIS text message to reply to them!)</i>"
     )
     
     for admin_id in ADMIN_IDS:
@@ -289,7 +289,7 @@ async def process_question(message: types.Message):
         
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
     
-    # FIX: Clean the text and names so it doesn't break the HTML alert!
+    # Clean the text and names so it doesn't break the HTML alert!
     safe_name = html.escape(message.from_user.full_name)
     safe_username = html.escape(username)
     safe_text = html.escape(user_text)
