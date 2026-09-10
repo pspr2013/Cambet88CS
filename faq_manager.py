@@ -1,7 +1,16 @@
 import pandas as pd
 import asyncio
 import logging
-from fuzzywuzzy import process, fuzz
+
+# --- BULLETPROOF AI IMPORT ---
+# This will automatically find and use whichever AI library is installed on your server!
+try:
+    from thefuzz import process, fuzz
+except ImportError:
+    try:
+        from rapidfuzz import process, fuzz
+    except ImportError:
+        from fuzzywuzzy import process, fuzz
 
 logger = logging.getLogger(__name__)
 
