@@ -7,7 +7,7 @@ import aiohttp
 import html 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 
 from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
@@ -103,7 +103,7 @@ async def process_back_menu(callback_query: types.CallbackQuery):
     if is_banned(callback_query.from_user.id): return
     
     await save_user(callback_query.from_user.id)
-    await callback_query.message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
+    await callback_query.message.answer("សូមជ្រើសរើស:", reply_markup=get_categories_keyboard())
     await callback_query.answer()
 
 WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q=80&w=1000&auto=format&fit=crop"
@@ -116,7 +116,7 @@ async def cmd_start(message: types.Message):
     
     await save_user(message.from_user.id) 
     
-    welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន តើមានអ្វីខ្ញុំអាចជួយបាន?</b>"
+    welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន! បើបងមានសំណួរអ្វីក្រៅពីចំណុចខាងក្រោម បងអាចផ្ញើសារជាអក្សរក្នុងប្រអប់ខាងក្រោមបាន!</b>"
     try:
         await message.answer_photo(photo=WELCOME_IMAGE_URL, caption=welcome_text, reply_markup=get_categories_keyboard(), parse_mode="HTML")
     except:
@@ -167,7 +167,7 @@ async def cmd_broadcast(message: types.Message):
             elif message.video:
                 await bot.send_video(uid, video=message.video.file_id, caption=clean_text, parse_mode="HTML")
             else:
-                await bot.send_message(uid, clean_text, parse_mode="HTML")
+                await bot.send_message(uid, clean_text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
                 
             success += 1
             await asyncio.sleep(0.1)
@@ -204,7 +204,7 @@ async def cmd_faq(message: types.Message):
     if is_spam(message): return
     
     await save_user(message.from_user.id)
-    await message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
+    await message.answer("សូមជ្រើសរើស:", reply_markup=get_categories_keyboard())
 
 @dp.message(Command("reload"))
 async def cmd_reload(message: types.Message):
@@ -231,9 +231,9 @@ async def process_category_callback(callback_query: types.CallbackQuery):
             if image_url and image_url.startswith("http"):
                 await callback_query.message.answer_photo(photo=image_url, caption=answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
             else:
-                await callback_query.message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
+                await callback_query.message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception:
-            await callback_query.message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
+            await callback_query.message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
         await callback_query.message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
     await callback_query.answer()
@@ -311,10 +311,10 @@ async def process_question(message: types.Message):
                 await message.answer_photo(photo=image_url, caption=answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
                 bot_response_summary = f"✅ Answered with Image:\n💬 {answer_text}"
             else:
-                await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
+                await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
                 bot_response_summary = f"✅ Answered automatically with:\n💬 {answer_text}"
         except Exception:
-            await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
+            await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
             bot_response_summary = f"✅ Answered automatically (Image failed to load)"
     else:
         await message.answer("សូមបងរងចាំបន្តិច")
