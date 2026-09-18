@@ -14,13 +14,19 @@ from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
 from faq_manager import FAQManager
 from web_keepalive import start_web_server
 
-# 👇 PASTE YOUR GOOGLE WEB APP URL HERE 👇
-GOOGLE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzKtvqmCTVU9J4L2D0_oYyqTINIDilNnKzRh3iNJsqrEmRAYRodKMJpaZRtXOghM56w/exec"
+# 👇 NOW FETCHES FROM RENDER ENVIRONMENT VARIABLES 👇
+GOOGLE_APPS_SCRIPT_URL = os.getenv("GOOGLE_APPS_SCRIPT_URL", "")
 
 # --- SUPPORT MULTIPLE ADMINS & GROUP CHATS ---
 raw_admins = os.getenv("ADMIN_USER_ID", str(ADMIN_USER_ID))
-# FIX: lstrip('-') allows the bot to read Negative Numbers (Telegram Group IDs)
 ADMIN_IDS = [int(x.strip()) for x in str(raw_admins).split(",") if x.strip().lstrip('-').isdigit()]
+
+# --- FEATURE: BANNED USERS ---
+raw_banned = os.getenv("BANNED_USERS", "")
+BANNED_IDS = [int(x.strip()) for x in str(raw_banned).split(",") if x.strip().lstrip('-').isdigit()]
+
+def is_banned(user_id):
+    return user_id in BANNED_IDS
 
 def is_admin(message: types.Message):
     """Checks if the command comes from an Admin DM or the authorized Staff Group"""
@@ -62,6 +68,7 @@ dp = Dispatcher()
 faq_manager = FAQManager(GOOGLE_SHEET_URL)
 
 async def save_user(user_id):
+    if not GOOGLE_APPS_SCRIPT_URL: return
     try:
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=save"
         async with aiohttp.ClientSession() as session:
@@ -71,6 +78,7 @@ async def save_user(user_id):
         pass
 
 async def remove_user(user_id):
+    if not GOOGLE_APPS_SCRIPT_URL: return
     try:
         url = f"{GOOGLE_APPS_SCRIPT_URL}?user_id={user_id}&action=delete"
         async with aiohttp.ClientSession() as session:
@@ -91,7 +99,9 @@ def get_back_keyboard():
 
 @dp.callback_query(F.data == "back_to_menu")
 async def process_back_menu(callback_query: types.CallbackQuery):
-    if callback_query.message.chat.type != "private": return # ONLY ALLOW IN DMs
+    if callback_query.message.chat.type != "private": return
+    if is_banned(callback_query.from_user.id): return
+    
     await save_user(callback_query.from_user.id)
     await callback_query.message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
     await callback_query.answer()
@@ -100,8 +110,10 @@ WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q
 
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    if message.chat.type != "private": return # ONLY ALLOW IN DMs
+    if message.chat.type != "private": return
+    if is_banned(message.from_user.id): return
     if is_spam(message): return
+    
     await save_user(message.from_user.id) 
     
     welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន តើមានអ្វីខ្ញុំអាចជួយបាន?</b>"
@@ -113,6 +125,9 @@ async def cmd_start(message: types.Message):
 @dp.message(Command("broadcast"))
 async def cmd_broadcast(message: types.Message):
     if not is_admin(message): return
+    if not GOOGLE_APPS_SCRIPT_URL:
+        await message.answer("⚠️ GOOGLE_APPS_SCRIPT_URL is not set in Render!")
+        return
         
     raw_text = message.text or message.caption or ""
     clean_text = raw_text.replace("/broadcast", "").strip()
@@ -143,6 +158,9 @@ async def cmd_broadcast(message: types.Message):
     success = 0
     
     for uid in known_users:
+        if is_banned(uid): 
+            continue
+            
         try:
             if message.photo:
                 await bot.send_photo(uid, photo=message.photo[-1].file_id, caption=clean_text, parse_mode="HTML")
@@ -169,8 +187,10 @@ async def cmd_broadcast(message: types.Message):
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    if message.chat.type != "private": return # ONLY ALLOW IN DMs
+    if message.chat.type != "private": return
+    if is_banned(message.from_user.id): return
     if is_spam(message): return
+    
     await save_user(message.from_user.id)
     help_text = "Just send me your question and I'll try my best to answer it!\nCommands:\n/start - Welcome message\n/faq - Browse FAQ categories\n"
     if is_admin(message):
@@ -179,8 +199,10 @@ async def cmd_help(message: types.Message):
 
 @dp.message(Command("faq"))
 async def cmd_faq(message: types.Message):
-    if message.chat.type != "private": return # ONLY ALLOW IN DMs
+    if message.chat.type != "private": return
+    if is_banned(message.from_user.id): return
     if is_spam(message): return
+    
     await save_user(message.from_user.id)
     await message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
 
@@ -195,7 +217,9 @@ async def cmd_reload(message: types.Message):
 
 @dp.callback_query(F.data.startswith("cat_"))
 async def process_category_callback(callback_query: types.CallbackQuery):
-    if callback_query.message.chat.type != "private": return # ONLY ALLOW IN DMs
+    if callback_query.message.chat.type != "private": return
+    if is_banned(callback_query.from_user.id): return
+    
     await save_user(callback_query.from_user.id)
     category = callback_query.data[4:]
     match_data = faq_manager.find_answer(category)
@@ -214,10 +238,9 @@ async def process_category_callback(callback_query: types.CallbackQuery):
         await callback_query.message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
     await callback_query.answer()
 
-# --- ADMIN REPLY HANDLER (Works in Staff Group) ---
 @dp.message(F.reply_to_message)
 async def admin_reply_handler(message: types.Message):
-    if not is_admin(message): return # ONLY AUTHORIZED GROUPS/ADMINS CAN REPLY
+    if not is_admin(message): return 
     
     replied_text = message.reply_to_message.text or message.reply_to_message.caption or ""
     user_match = re.search(r"ID:\s*(\d+)", replied_text)
@@ -235,12 +258,12 @@ async def admin_reply_handler(message: types.Message):
         except Exception as e:
             await message.answer(f"❌ Failed to send message. Error: {e}")
     else:
-        # Silently ignore to prevent spamming the staff group if they accidentally reply to a normal message
         pass
 
 @dp.message(~F.text)
 async def process_media(message: types.Message):
-    if message.chat.type != "private": return # ONLY ALLOW IN DMs
+    if message.chat.type != "private": return
+    if is_banned(message.from_user.id): return
     if is_spam(message): return
     if is_admin(message): return
 
@@ -268,7 +291,8 @@ async def process_media(message: types.Message):
 
 @dp.message(F.text)
 async def process_question(message: types.Message):
-    if message.chat.type != "private": return # ONLY ALLOW IN DMs
+    if message.chat.type != "private": return
+    if is_banned(message.from_user.id): return
     if is_spam(message): return
     if is_admin(message): return
 
