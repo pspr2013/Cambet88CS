@@ -9,10 +9,31 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
+import google.generativeai as genai
 
 from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
 from faq_manager import FAQManager
 from web_keepalive import start_web_server
+
+# --- GEMINI AI SETUP ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    ai_model = genai.GenerativeModel(
+        model_name='gemini-1.5-flash',
+        system_instruction=(
+            "You are a helpful, polite customer support assistant for a website/casino. "
+            "Answer the user's questions in Khmer or English. "
+            "CRITICAL RULE: If the user asks for specific account help (like resetting passwords, deposits missing), "
+            "or if you simply do not know the answer, you MUST reply with EXACTLY the word 'HUMAN_FALLBACK'. "
+            "Do not say anything else. Just HUMAN_FALLBACK."
+        )
+    )
+else:
+    ai_model = None
+
+# Store AI chat memory for users
+user_ai_chats = {}
 
 # 👇 NOW FETCHES FROM RENDER ENVIRONMENT VARIABLES 👇
 GOOGLE_APPS_SCRIPT_URL = os.getenv("GOOGLE_APPS_SCRIPT_URL", "")
@@ -103,7 +124,7 @@ async def process_back_menu(callback_query: types.CallbackQuery):
     if is_banned(callback_query.from_user.id): return
     
     await save_user(callback_query.from_user.id)
-    await callback_query.message.answer("សូមជ្រើសរើស:", reply_markup=get_categories_keyboard())
+    await callback_query.message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
     await callback_query.answer()
 
 WELCOME_IMAGE_URL = "https://images.unsplash.com/photo-1556761175-5973dc0f32b7?q=80&w=1000&auto=format&fit=crop"
@@ -116,7 +137,7 @@ async def cmd_start(message: types.Message):
     
     await save_user(message.from_user.id) 
     
-    welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន! បើបងមានសំណួរអ្វីក្រៅពីចំណុចខាងក្រោម បងអាចផ្ញើសារជាអក្សរក្នុងប្រអប់ខាងក្រោមបាន!</b>"
+    welcome_text = "👋 <b>សូមស្វាគមន៍មកកាន់ ផ្នែកបំរើអតិថិជន តើមានអ្វីខ្ញុំអាចជួយបាន?</b>"
     try:
         await message.answer_photo(photo=WELCOME_IMAGE_URL, caption=welcome_text, reply_markup=get_categories_keyboard(), parse_mode="HTML")
     except:
@@ -204,7 +225,7 @@ async def cmd_faq(message: types.Message):
     if is_spam(message): return
     
     await save_user(message.from_user.id)
-    await message.answer("សូមជ្រើសរើស:", reply_markup=get_categories_keyboard())
+    await message.answer("Please choose a category:", reply_markup=get_categories_keyboard())
 
 @dp.message(Command("reload"))
 async def cmd_reload(message: types.Message):
@@ -301,6 +322,8 @@ async def process_question(message: types.Message):
     await asyncio.sleep(0.5)
 
     user_text = message.text
+    
+    # 1. First, check Google Sheets for exact matches
     match_data = faq_manager.find_answer(user_text)
     
     if match_data:
@@ -309,30 +332,55 @@ async def process_question(message: types.Message):
         try:
             if image_url and image_url.startswith("http"):
                 await message.answer_photo(photo=image_url, caption=answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML")
-                bot_response_summary = f"✅ Answered with Image:\n💬 {answer_text}"
+                bot_response_summary = f"✅ Answered with Excel Image:\n💬 {answer_text}"
             else:
                 await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
-                bot_response_summary = f"✅ Answered automatically with:\n💬 {answer_text}"
+                bot_response_summary = f"✅ Answered automatically from Excel:\n💬 {answer_text}"
         except Exception:
             await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
-            bot_response_summary = f"✅ Answered automatically (Image failed to load)"
+            bot_response_summary = f"✅ Answered automatically from Excel"
+            
+    # 2. If not in Google Sheets, ask the AI
+    elif ai_model:
+        try:
+            uid = message.from_user.id
+            if uid not in user_ai_chats:
+                user_ai_chats[uid] = ai_model.start_chat(history=[])
+                
+            ai_response = await user_ai_chats[uid].send_message_async(user_text)
+            ai_text = ai_response.text.strip()
+            
+            if "HUMAN_FALLBACK" in ai_text:
+                await message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
+                bot_response_summary = "🚨 <b>AI could not answer. HUMAN NEEDED!</b>"
+            else:
+                # We do NOT use parse_mode="HTML" here so the AI's markdown doesn't crash Telegram
+                await message.answer(ai_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
+                bot_response_summary = f"🤖 <b>AI Answered:</b>\n💬 {ai_text}"
+                
+        except Exception as e:
+            logger.error(f"AI Error: {e}")
+            await message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
+            bot_response_summary = "🚨 <b>AI crashed/failed. HUMAN NEEDED!</b>"
+            
+    # 3. Fallback if AI isn't configured
     else:
-        await message.answer("សូមបងរងចាំបន្តិច")
-        bot_response_summary = "❌ No match (needs human reply)."
+        await message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
+        bot_response_summary = "🚨 <b>No match. HUMAN NEEDED!</b>"
         
     username = f"@{message.from_user.username}" if message.from_user.username else "No username"
-    
     safe_name = html.escape(message.from_user.full_name)
     safe_username = html.escape(username)
     safe_text = html.escape(user_text)
     
     admin_log = (
-        f"🚨 <b>NEW CUSTOMER QUESTION</b>\n"
+        f"🔔 <b>NEW CUSTOMER QUESTION</b>\n"
         f"👤 <b>User:</b> {safe_name} ({safe_username})\n"
         f"🆔 <b>ID:</b> {message.from_user.id}\n"
         f"📝 <b>MsgID:</b> {message.message_id}\n"
         f"💬 <b>Asked:</b> {safe_text}\n"
-        f"🤖 <b>Bot Action:</b> {bot_response_summary}\n\n"
+        f"------------------\n"
+        f"{bot_response_summary}\n\n"
         f"<i>(Swipe left / Reply directly to this message to answer the customer!)</i>"
     )
     for admin_id in ADMIN_IDS:
