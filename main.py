@@ -11,7 +11,10 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
-import google.generativeai as genai
+
+# --- NEW 2026 GOOGLE AI PACKAGE ---
+from google import genai
+from google.genai import types as genai_types
 
 from config import BOT_TOKEN, ADMIN_USER_ID, GOOGLE_SHEET_URL, PORT
 from faq_manager import FAQManager
@@ -22,12 +25,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 WEBSITE_URL = os.getenv("WEBSITE_URL", "")
 AI_SHEET_URL = os.getenv("AI_SHEET_URL", "")
 
-ai_model = None
+gemini_client = None
 user_ai_chats = {}
 ai_training_text = ""
 
 async def update_ai_brain():
-    global ai_model, user_ai_chats, ai_training_text
+    global gemini_client, user_ai_chats, ai_training_text
     user_ai_chats.clear() # Clear old memory so it learns the new rules
     ai_training_text = ""
     
@@ -51,9 +54,7 @@ async def update_ai_brain():
         ai_training_text = os.getenv("AI_TRAINING_DATA", "We are a premium online casino.")
 
     if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        # Using the bulletproof universally supported model
-        ai_model = genai.GenerativeModel('gemini-pro')
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # 👇 NOW FETCHES FROM RENDER ENVIRONMENT VARIABLES 👇
 GOOGLE_APPS_SCRIPT_URL = os.getenv("GOOGLE_APPS_SCRIPT_URL", "")
@@ -348,7 +349,7 @@ async def process_question(message: types.Message):
             await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
             bot_response_summary = f"✅ Answered automatically from Excel"
             
-    elif ai_model:
+    elif gemini_client:
         try:
             uid = message.from_user.id
             if uid not in user_ai_chats:
@@ -358,12 +359,14 @@ async def process_question(message: types.Message):
                     f"Official Website: {WEBSITE_URL}\n"
                     "CRITICAL RULE: Answer politely based ONLY on the training data. If the answer is not in the data or the user needs account help, reply with EXACTLY the word 'HUMAN_FALLBACK'."
                 )
-                user_ai_chats[uid] = ai_model.start_chat(history=[
-                    {'role': 'user', 'parts': [instruction]},
-                    {'role': 'model', 'parts': ["Understood. I will answer based only on the training data or say HUMAN_FALLBACK."]}
-                ])
+                user_ai_chats[uid] = gemini_client.aio.chats.create(
+                    model="gemini-2.5-flash",
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=instruction,
+                    )
+                )
                 
-            ai_response = await user_ai_chats[uid].send_message_async(user_text)
+            ai_response = await user_ai_chats[uid].send_message(user_text)
             ai_text = ai_response.text.strip()
             
             if "HUMAN_FALLBACK" in ai_text:
