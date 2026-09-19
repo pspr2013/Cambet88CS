@@ -1,9 +1,7 @@
 import os
 
+# This forces the code to ONLY use the token from Render's Environment Variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-# We removed the 'int()' part so commas won't crash the bot!
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "0") 
-
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 GOOGLE_SHEET_URL = os.getenv("GOOGLE_SHEET_URL")
-PORT = int(os.getenv("PORT", "8080"))
+PORT = int(os.getenv("PORT", 8080))
