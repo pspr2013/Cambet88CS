@@ -57,7 +57,7 @@ async def update_ai_brain():
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
         ai_model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash',
+            model_name='gemini-1.5-flash-latest', # <--- FIXED MODEL NAME HERE!
             system_instruction=(
                 f"You are a helpful customer support assistant for a website/casino. "
                 f"Here is the official information and training data about our website:\n{training_text}\n\n"
