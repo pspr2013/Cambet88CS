@@ -5,6 +5,8 @@ import os
 import time 
 import aiohttp
 import html 
+import pandas as pd
+import io
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
@@ -17,23 +19,55 @@ from web_keepalive import start_web_server
 
 # --- GEMINI AI SETUP ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    ai_model = genai.GenerativeModel(
-        model_name='gemini-1.5-flash',
-        system_instruction=(
-            "You are a helpful, polite customer support assistant for a website/casino. "
-            "Answer the user's questions in Khmer or English. "
-            "CRITICAL RULE: If the user asks for specific account help (like resetting passwords, deposits missing), "
-            "or if you simply do not know the answer, you MUST reply with EXACTLY the word 'HUMAN_FALLBACK'. "
-            "Do not say anything else. Just HUMAN_FALLBACK."
-        )
-    )
-else:
-    ai_model = None
+WEBSITE_URL = os.getenv("WEBSITE_URL", "")
+AI_SHEET_URL = os.getenv("AI_SHEET_URL", "")
 
-# Store AI chat memory for users
+ai_model = None
 user_ai_chats = {}
+
+async def update_ai_brain():
+    global ai_model, user_ai_chats
+    user_ai_chats.clear() # Clear old memory so it learns the new rules
+    
+    training_text = ""
+    
+    if AI_SHEET_URL:
+        try:
+            # Safely extract the Google Sheet ID to download as text
+            match = re.search(r'/d/([a-zA-Z0-9-_]+)', AI_SHEET_URL)
+            if match:
+                sheet_id = match.group(1)
+                csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(csv_url) as response:
+                        if response.status == 200:
+                            csv_data = await response.text()
+                            df = pd.read_csv(io.StringIO(csv_data))
+                            # Convert the entire Excel sheet into a text format for the AI to read
+                            training_text = df.to_string(index=False)
+                            logging.info("✅ AI successfully memorized the Google Sheet!")
+        except Exception as e:
+            logging.error(f"Failed to load AI Sheet: {e}")
+
+    # Fallback to the old variable if the sheet fails
+    if not training_text.strip():
+        training_text = os.getenv("AI_TRAINING_DATA", "We are a premium online casino.")
+
+    if GEMINI_API_KEY:
+        genai.configure(api_key=GEMINI_API_KEY)
+        ai_model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash',
+            system_instruction=(
+                f"You are a helpful customer support assistant for a website/casino. "
+                f"Here is the official information and training data about our website:\n{training_text}\n\n"
+                f"Our official website link is: {WEBSITE_URL}\n\n"
+                "Answer the user's questions politely in Khmer or English based ONLY on the training data provided above. "
+                "CRITICAL RULE: If the user asks for specific account help (like resetting passwords, deposits missing), "
+                "or if they ask a question that is NOT covered in your training data, you MUST reply with EXACTLY the word 'HUMAN_FALLBACK'. "
+                "Do not guess. Do not say anything else. Just HUMAN_FALLBACK."
+            )
+        )
 
 # 👇 NOW FETCHES FROM RENDER ENVIRONMENT VARIABLES 👇
 GOOGLE_APPS_SCRIPT_URL = os.getenv("GOOGLE_APPS_SCRIPT_URL", "")
@@ -50,7 +84,6 @@ def is_banned(user_id):
     return user_id in BANNED_IDS
 
 def is_admin(message: types.Message):
-    """Checks if the command comes from an Admin DM or the authorized Staff Group"""
     return message.chat.id in ADMIN_IDS or message.from_user.id in ADMIN_IDS
 
 # --- CUSTOMER SPAM SHIELD ---
@@ -154,7 +187,7 @@ async def cmd_broadcast(message: types.Message):
     clean_text = raw_text.replace("/broadcast", "").strip()
     
     if not clean_text and not message.photo and not message.video:
-        await message.answer("⚠️ Please provide a message or attach a picture. Example:\n`/broadcast We have a sale today!`", parse_mode="Markdown")
+        await message.answer("⚠️ Please provide a message or attach a picture.")
         return
 
     await message.answer("🔄 Fetching customer list from your Google Sheet...")
@@ -168,20 +201,18 @@ async def cmd_broadcast(message: types.Message):
         else:
             known_users = [int(x) for x in text_data.split(",") if x.strip().isdigit()]
     except Exception as e:
-        await message.answer(f"❌ Failed to fetch users from Google Sheets: {e}")
+        await message.answer(f"❌ Failed to fetch users: {e}")
         return
         
     if not known_users:
-        await message.answer("⚠️ No customers found in the Google Sheet yet!")
+        await message.answer("⚠️ No customers found!")
         return
         
     await message.answer(f"🚀 Starting broadcast to {len(known_users)} customers...")
     success = 0
     
     for uid in known_users:
-        if is_banned(uid): 
-            continue
-            
+        if is_banned(uid): continue
         try:
             if message.photo:
                 await bot.send_photo(uid, photo=message.photo[-1].file_id, caption=clean_text, parse_mode="HTML")
@@ -189,22 +220,14 @@ async def cmd_broadcast(message: types.Message):
                 await bot.send_video(uid, video=message.video.file_id, caption=clean_text, parse_mode="HTML")
             else:
                 await bot.send_message(uid, clean_text, parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
-                
             success += 1
             await asyncio.sleep(0.1)
-            
         except TelegramRetryAfter as e:
             await asyncio.sleep(e.retry_after)
-        except TelegramForbiddenError:
-            await remove_user(uid)
-        except TelegramBadRequest as e:
-            error_msg = str(e).lower()
-            if "chat not found" in error_msg or "user is deactivated" in error_msg:
-                await remove_user(uid)
         except Exception:
             pass 
             
-    await message.answer(f"✅ Broadcast finished! Successfully sent to {success} out of {len(known_users)} customers.")
+    await message.answer(f"✅ Broadcast finished! Sent to {success}/{len(known_users)} customers.")
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
@@ -213,9 +236,9 @@ async def cmd_help(message: types.Message):
     if is_spam(message): return
     
     await save_user(message.from_user.id)
-    help_text = "Just send me your question and I'll try my best to answer it!\nCommands:\n/start - Welcome message\n/faq - Browse FAQ categories\n"
+    help_text = "Just send me your question and I'll try my best to answer it!\n/start - Welcome menu\n/faq - Browse FAQs"
     if is_admin(message):
-        help_text += "\n<b>Admin Commands:</b>\n/reload - Reload FAQ data\n/broadcast [msg] - Message all users"
+        help_text += "\n<b>Admin Commands:</b>\n/reload - Reload FAQ & AI data\n/broadcast [msg] - Message all users"
     await message.answer(help_text, parse_mode="HTML")
 
 @dp.message(Command("faq"))
@@ -230,11 +253,15 @@ async def cmd_faq(message: types.Message):
 @dp.message(Command("reload"))
 async def cmd_reload(message: types.Message):
     if not is_admin(message): return
+    
+    await message.answer("🔄 Downloading new data from Google Sheets...")
     success = faq_manager.load_data()
+    await update_ai_brain()
+    
     if success:
-        await message.answer("✅ FAQ data reloaded successfully!")
+        await message.answer("✅ FAQ and AI Brain reloaded successfully!")
     else:
-        await message.answer("❌ Failed to reload FAQ data. Check logs.")
+        await message.answer("⚠️ AI Brain updated, but FAQ had an error. Check logs.")
 
 @dp.callback_query(F.data.startswith("cat_"))
 async def process_category_callback(callback_query: types.CallbackQuery):
@@ -278,8 +305,6 @@ async def admin_reply_handler(message: types.Message):
             await message.answer("✅ Your reply was successfully sent!")
         except Exception as e:
             await message.answer(f"❌ Failed to send message. Error: {e}")
-    else:
-        pass
 
 @dp.message(~F.text)
 async def process_media(message: types.Message):
@@ -302,7 +327,6 @@ async def process_media(message: types.Message):
         f"📝 <b>MsgID:</b> {message.message_id}\n\n"
         f"<i>(👇 Swipe left on THIS text message to reply to them!)</i>"
     )
-    
     for admin_id in ADMIN_IDS:
         try:
             await bot.send_message(admin_id, admin_log, parse_mode="HTML")
@@ -322,8 +346,6 @@ async def process_question(message: types.Message):
     await asyncio.sleep(0.5)
 
     user_text = message.text
-    
-    # 1. First, check Google Sheets for exact matches
     match_data = faq_manager.find_answer(user_text)
     
     if match_data:
@@ -340,7 +362,6 @@ async def process_question(message: types.Message):
             await message.answer(answer_text, reply_markup=get_back_keyboard(), parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
             bot_response_summary = f"✅ Answered automatically from Excel"
             
-    # 2. If not in Google Sheets, ask the AI
     elif ai_model:
         try:
             uid = message.from_user.id
@@ -354,7 +375,6 @@ async def process_question(message: types.Message):
                 await message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
                 bot_response_summary = "🚨 <b>AI could not answer. HUMAN NEEDED!</b>"
             else:
-                # We do NOT use parse_mode="HTML" here so the AI's markdown doesn't crash Telegram
                 await message.answer(ai_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
                 bot_response_summary = f"🤖 <b>AI Answered:</b>\n💬 {ai_text}"
                 
@@ -362,8 +382,6 @@ async def process_question(message: types.Message):
             logger.error(f"AI Error: {e}")
             await message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
             bot_response_summary = "🚨 <b>AI crashed/failed. HUMAN NEEDED!</b>"
-            
-    # 3. Fallback if AI isn't configured
     else:
         await message.answer("សូមបងរងចាំបន្តិច", parse_mode="HTML")
         bot_response_summary = "🚨 <b>No match. HUMAN NEEDED!</b>"
@@ -394,6 +412,7 @@ async def main():
         logger.error("BOT_TOKEN is missing. Cannot start polling.")
         return
 
+    await update_ai_brain() # Download the AI brain on startup!
     await start_web_server(PORT)
     asyncio.create_task(faq_manager.auto_reload_task())
     
