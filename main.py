@@ -12,7 +12,6 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 
-# --- NEW 2026 GOOGLE AI PACKAGE ---
 from google import genai
 from google.genai import types as genai_types
 
@@ -31,7 +30,7 @@ ai_training_text = ""
 
 async def update_ai_brain():
     global gemini_client, user_ai_chats, ai_training_text
-    user_ai_chats.clear() # Clear old memory so it learns the new rules
+    user_ai_chats.clear() 
     ai_training_text = ""
     
     if AI_SHEET_URL:
@@ -360,7 +359,7 @@ async def process_question(message: types.Message):
                     "CRITICAL RULE: Answer politely based ONLY on the training data. If the answer is not in the data or the user needs account help, reply with EXACTLY the word 'HUMAN_FALLBACK'."
                 )
                 user_ai_chats[uid] = gemini_client.aio.chats.create(
-                    model="gemini-2.5-flash",
+                    model="gemini-3.6-flash",
                     config=genai_types.GenerateContentConfig(
                         system_instruction=instruction,
                     )
