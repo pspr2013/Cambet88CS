@@ -24,50 +24,36 @@ AI_SHEET_URL = os.getenv("AI_SHEET_URL", "")
 
 ai_model = None
 user_ai_chats = {}
+ai_training_text = ""
 
 async def update_ai_brain():
-    global ai_model, user_ai_chats
+    global ai_model, user_ai_chats, ai_training_text
     user_ai_chats.clear() # Clear old memory so it learns the new rules
-    
-    training_text = ""
+    ai_training_text = ""
     
     if AI_SHEET_URL:
         try:
-            # Safely extract the Google Sheet ID to download as text
             match = re.search(r'/d/([a-zA-Z0-9-_]+)', AI_SHEET_URL)
             if match:
                 sheet_id = match.group(1)
                 csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-                
                 async with aiohttp.ClientSession() as session:
                     async with session.get(csv_url) as response:
                         if response.status == 200:
                             csv_data = await response.text()
                             df = pd.read_csv(io.StringIO(csv_data))
-                            # Convert the entire Excel sheet into a text format for the AI to read
-                            training_text = df.to_string(index=False)
+                            ai_training_text = df.to_string(index=False)
                             logging.info("✅ AI successfully memorized the Google Sheet!")
         except Exception as e:
             logging.error(f"Failed to load AI Sheet: {e}")
 
-    # Fallback to the old variable if the sheet fails
-    if not training_text.strip():
-        training_text = os.getenv("AI_TRAINING_DATA", "We are a premium online casino.")
+    if not ai_training_text.strip():
+        ai_training_text = os.getenv("AI_TRAINING_DATA", "We are a premium online casino.")
 
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-        ai_model = genai.GenerativeModel(
-            model_name='gemini-1.5-flash-latest', # <--- FIXED MODEL NAME HERE!
-            system_instruction=(
-                f"You are a helpful customer support assistant for a website/casino. "
-                f"Here is the official information and training data about our website:\n{training_text}\n\n"
-                f"Our official website link is: {WEBSITE_URL}\n\n"
-                "Answer the user's questions politely in Khmer or English based ONLY on the training data provided above. "
-                "CRITICAL RULE: If the user asks for specific account help (like resetting passwords, deposits missing), "
-                "or if they ask a question that is NOT covered in your training data, you MUST reply with EXACTLY the word 'HUMAN_FALLBACK'. "
-                "Do not guess. Do not say anything else. Just HUMAN_FALLBACK."
-            )
-        )
+        # Using the bulletproof universally supported model
+        ai_model = genai.GenerativeModel('gemini-pro')
 
 # 👇 NOW FETCHES FROM RENDER ENVIRONMENT VARIABLES 👇
 GOOGLE_APPS_SCRIPT_URL = os.getenv("GOOGLE_APPS_SCRIPT_URL", "")
@@ -366,7 +352,16 @@ async def process_question(message: types.Message):
         try:
             uid = message.from_user.id
             if uid not in user_ai_chats:
-                user_ai_chats[uid] = ai_model.start_chat(history=[])
+                instruction = (
+                    f"You are a helpful customer support assistant for a casino/website. "
+                    f"Training data:\n{ai_training_text}\n"
+                    f"Official Website: {WEBSITE_URL}\n"
+                    "CRITICAL RULE: Answer politely based ONLY on the training data. If the answer is not in the data or the user needs account help, reply with EXACTLY the word 'HUMAN_FALLBACK'."
+                )
+                user_ai_chats[uid] = ai_model.start_chat(history=[
+                    {'role': 'user', 'parts': [instruction]},
+                    {'role': 'model', 'parts': ["Understood. I will answer based only on the training data or say HUMAN_FALLBACK."]}
+                ])
                 
             ai_response = await user_ai_chats[uid].send_message_async(user_text)
             ai_text = ai_response.text.strip()
@@ -412,7 +407,7 @@ async def main():
         logger.error("BOT_TOKEN is missing. Cannot start polling.")
         return
 
-    await update_ai_brain() # Download the AI brain on startup!
+    await update_ai_brain() 
     await start_web_server(PORT)
     asyncio.create_task(faq_manager.auto_reload_task())
     
